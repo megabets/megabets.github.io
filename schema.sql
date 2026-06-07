@@ -5,6 +5,7 @@
 create table players (
   id uuid primary key default gen_random_uuid(),
   nickname text unique not null,
+  pin_hash text,                   -- SHA-256(nickname:pin); null = not yet claimed
   created_at timestamptz default now()
 );
 
@@ -44,6 +45,12 @@ create policy "insert players"   on players     for insert with check (true);
 create policy "insert preds"     on predictions for insert with check (true);
 create policy "update preds"     on predictions for update using (true);
 
+-- A player's PIN may be set only while it is unclaimed (pin_hash is null).
+-- Once set, the anon key can no longer change it — so a nickname can't be
+-- re-PINned by someone else. (Client-side deterrent: the PIN is checked in the
+-- browser; this policy just keeps a claimed PIN from being overwritten.)
+create policy "claim pin"        on players     for update using (pin_hash is null) with check (true);
+
 -- ── Admin write model (SERVICE-KEY ONLY) ─────────────────
 -- Matches are written ONLY by GitHub Actions using the SERVICE key, which
 -- bypasses RLS. So `matches` has NO public write policy — intentionally.
@@ -55,3 +62,10 @@ create policy "update preds"     on predictions for update using (true);
 -- Do NOT add a public update policy like the one below: on a public site it
 -- would let anyone holding the (public) anon key tamper with match scores.
 --   create policy "update matches" on matches for update using (true);  -- ⚠ insecure, leave off
+
+-- ── Migration: add PINs to an EXISTING project ───────────
+-- The block above is the fresh-install schema. If your project already has the
+-- players table, run THIS in the Supabase SQL Editor instead (idempotent):
+--   alter table players add column if not exists pin_hash text;
+--   create policy "claim pin" on players for update using (pin_hash is null) with check (true);
+-- Existing PIN-less players keep pin_hash = null and claim a PIN on next login.

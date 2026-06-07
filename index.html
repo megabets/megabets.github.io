@@ -123,15 +123,17 @@
   <section class="view active" id="view-join">
     <div class="card">
       <h2>Pick your nickname</h2>
-      <p class="sub">One nickname per player. It's stored on this device so you stay logged in.</p>
+      <p class="sub">One nickname per player, locked with a PIN. It's stored on this device so you stay logged in.</p>
       <label for="nick">Nickname</label>
       <input type="text" id="nick" maxlength="20" placeholder="e.g. ElTri_Nostradamus" autocomplete="off" />
+      <label for="pin" style="margin-top:14px">PIN</label>
+      <input type="password" id="pin" inputmode="numeric" maxlength="6" placeholder="4–6 digits" autocomplete="off" />
       <div style="margin-top:14px; display:flex; gap:10px">
         <button class="btn" id="joinBtn">Join league</button>
         <button class="btn sec" id="leaveBtn" style="display:none">Switch player</button>
       </div>
       <div class="msg" id="joinMsg"></div>
-      <p class="hint">No password — this is a friends' league on trust. Anyone who knows your nickname could in theory bet as you, so pick something only your group recognizes.</p>
+      <p class="hint">Your nickname is locked with a PIN you choose the first time you join — after that, joining as that nickname needs the matching PIN. It's a light deterrent for a friends' league, not bank-grade security, so keep your PIN to yourself and don't reuse a sensitive one.</p>
     </div>
   </section>
 
@@ -215,6 +217,13 @@ function points(m, ph, pa){
   const ao=Math.sign(m.home_score-m.away_score), po=Math.sign(ph-pa);
   return ao===po ? 1 : 0;
 }
+// Client-side PIN hash: SHA-256 of "nickname:pin" (nickname salts it so the same
+// PIN on different nicknames yields different hashes). Deterrent only — see Join hint.
+async function hashPin(nick, pin){
+  const data = new TextEncoder().encode(nick.toLowerCase()+":"+pin);
+  const buf = await crypto.subtle.digest("SHA-256", data);
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
+}
 
 /* ───────────── tabs ───────────── */
 document.querySelectorAll("nav.tabs button").forEach(b=>{
@@ -236,15 +245,26 @@ function refreshWhoami(){
 }
 $("#joinBtn").onclick = async ()=>{
   const nick = $("#nick").value.trim();
+  const pin = $("#pin").value.trim();
   const msg = $("#joinMsg");
   if(nick.length<2){ msg.className="msg err"; msg.textContent="Pick at least 2 characters."; return; }
+  if(!/^\d{4,6}$/.test(pin)){ msg.className="msg err"; msg.textContent="PIN must be 4–6 digits."; return; }
   msg.className="msg"; msg.textContent="Joining…";
   try{
+    const pin_hash = await hashPin(nick, pin);
     // already exists?
-    const found = await rest(`players?nickname=eq.${encodeURIComponent(nick)}&select=*`);
+    const found = await rest(`players?nickname=eq.${encodeURIComponent(nick)}&select=id,nickname,pin_hash`);
     let player;
-    if(found && found.length){ player = found[0]; }
-    else { const created = await rest("players",{method:"POST",body:JSON.stringify({nickname:nick})}); player = created[0]; }
+    if(found && found.length){
+      player = found[0];
+      if(player.pin_hash){
+        if(player.pin_hash !== pin_hash){ msg.className="msg err"; msg.textContent="Wrong PIN for that nickname."; return; }
+      } else {
+        // legacy/unclaimed player — set the PIN now (claim it)
+        await rest(`players?id=eq.${player.id}`,{method:"PATCH", prefer:"return=minimal", body:JSON.stringify({pin_hash})});
+      }
+    }
+    else { const created = await rest("players",{method:"POST",body:JSON.stringify({nickname:nick, pin_hash})}); player = created[0]; }
     me = {id:player.id, nickname:player.nickname};
     localStorage.setItem("wc_player", JSON.stringify(me));
     refreshWhoami();
@@ -255,7 +275,7 @@ $("#joinBtn").onclick = async ()=>{
   }
 };
 $("#leaveBtn").onclick = ()=>{ me=null; localStorage.removeItem("wc_player"); refreshWhoami();
-  $("#joinMsg").className="msg"; $("#joinMsg").textContent="Switched out. Enter a nickname to join."; $("#nick").value=""; };
+  $("#joinMsg").className="msg"; $("#joinMsg").textContent="Switched out. Enter a nickname to join."; $("#nick").value=""; $("#pin").value=""; };
 
 /* ───────────── data load ───────────── */
 async function loadMatches(){

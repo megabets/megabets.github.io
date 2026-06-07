@@ -7,7 +7,7 @@ Supabase. No build step, no framework — open `index.html` and it runs.
 
 **Scoring:** exact score = 3 · correct outcome (incl. draw) = 1 · wrong = 0
 **Betting:** organised by round; the whole round locks at its first kickoff.
-**Identity:** nickname only, stored in the browser (friends-trust model, no passwords).
+**Identity:** nickname + a PIN you choose on first join, stored in the browser (friends-trust model — the PIN is a client-side deterrent, not bank-grade security).
 
 ---
 
@@ -39,6 +39,16 @@ Because all match-score writes go through the service key (via GitHub Actions),
 `matches` has **no public write policy** — so a visitor holding the public anon key
 **cannot** tamper with scores. There is no admin password anywhere (nothing to leak).
 
+**Player PINs** (`players.pin_hash`): each nickname is locked with a PIN the first
+time it joins. The PIN is hashed in the browser (SHA-256 of `nickname:pin`) and
+compared client-side, so it's a deterrent against casual impersonation — *not* a
+hard server-side guarantee (someone determined could still call the REST API with
+the public anon key). The one server-side guard is the `claim pin` RLS policy:
+a PIN can only be set while `pin_hash` is null, so a *claimed* nickname can't be
+re-PINned by someone else. Pre-PIN players keep `pin_hash = null` and claim a PIN
+on their next login. To harden this to true enforcement, move the bet write into a
+`pgcrypto` `SECURITY DEFINER` Postgres function and lock down the predictions RLS.
+
 ---
 
 ## One-time setup
@@ -47,6 +57,8 @@ Because all match-score writes go through the service key (via GitHub Actions),
 1. Project already exists (URL is hard-coded in `index.html` / scripts).
 2. In Supabase → **SQL Editor**, run the contents of `schema.sql` once.
    (Leave the commented-out `update matches` policy commented — see the file.)
+   If the tables already exist, run the **migration** block at the bottom of
+   `schema.sql` instead to add `players.pin_hash` + the `claim pin` policy.
 
 ### 2. Add the GitHub Actions secrets
 Repo → **Settings → Secrets and variables → Actions → New repository secret**
@@ -114,7 +126,8 @@ Nothing is stored as "points" — change a result and standings recompute instan
 Tie-break on the leaderboard: most exact-score hits.
 
 ## Notes / limitations
-- Nicknames are unique; first to claim one owns it. No passwords for players, so
-  anyone who knows a nickname could bet as that player — fine for a trusted group.
+- Nicknames are unique; first to claim one owns it, and the PIN set on first join
+  guards it from then on. The PIN check is client-side (a deterrent) — fine for a
+  trusted group; see the Security model section for the limits and how to harden it.
 - A round locks for everyone at the first match's kickoff in that round.
 - Group rounds are MD1/MD2/MD3 (mapped from the API's matchday number).

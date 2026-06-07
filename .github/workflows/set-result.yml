@@ -1,0 +1,47 @@
+name: set-result
+
+# Manual override: post or correct a single match score immediately.
+# This is the secure replacement for the old in-browser Admin tab — it writes
+# with the service_role key (kept in Actions secrets), and triggering it requires
+# GitHub repo access, so it's gated by real authentication, not a browser password.
+
+on:
+  workflow_dispatch:
+    inputs:
+      match:
+        description: "Match id (football-data.org id / matches table PK)"
+        required: true
+        type: string
+      home:
+        description: "Home score"
+        required: true
+        type: string
+      away:
+        description: "Away score"
+        required: true
+        type: string
+      status:
+        description: "Match status"
+        required: false
+        default: "FINISHED"
+        type: string
+
+jobs:
+  set:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: Set match result
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: >
+          python3 set_result.py
+          --match "${{ inputs.match }}"
+          --home "${{ inputs.home }}"
+          --away "${{ inputs.away }}"
+          --status "${{ inputs.status }}"

@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>malakabet — World Cup 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Spline+Sans+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0e14; --panel:#111722; --panel2:#161e2b; --line:#222d3d;
+    --ink:#e8edf4; --muted:#8a98ad; --accent:#00e07a; --accent2:#ff5a3c;
+    --gold:#ffce3a; --radius:14px;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:
+      radial-gradient(1100px 500px at 80% -10%, rgba(0,224,122,.10), transparent 60%),
+      radial-gradient(900px 500px at -10% 10%, rgba(255,90,60,.08), transparent 55%),
+      var(--bg);
+    color:var(--ink); font-family:"Bricolage Grotesque",system-ui,sans-serif;
+    min-height:100vh; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:880px; margin:0 auto; padding:24px 18px 80px}
+  header.top{display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:6px}
+  .brand{display:flex; align-items:baseline; gap:10px}
+  .brand h1{font-size:clamp(22px,4.5vw,34px); font-weight:800; letter-spacing:-.02em; margin:0; line-height:1}
+  .brand .yr{font-family:"Spline Sans Mono",monospace; color:var(--accent); font-size:14px; font-weight:600}
+  .whoami{font-family:"Spline Sans Mono",monospace; font-size:13px; color:var(--muted); text-align:right}
+  .whoami b{color:var(--ink)}
+  .tagline{font-family:"Spline Sans Mono",monospace; font-size:13px; color:var(--muted); margin:2px 0 0}
+  .scorekey{display:flex; gap:14px; flex-wrap:wrap; font-size:12.5px; color:var(--muted); margin:10px 0 18px;
+    font-family:"Spline Sans Mono",monospace}
+  .scorekey b{color:var(--ink)}
+  .pill{padding:2px 8px; border-radius:999px; background:var(--panel2); border:1px solid var(--line)}
+  nav.tabs{display:flex; gap:6px; background:var(--panel); border:1px solid var(--line);
+    padding:6px; border-radius:var(--radius); margin-bottom:18px; flex-wrap:wrap}
+  nav.tabs button{flex:1; min-width:84px; background:transparent; border:0; color:var(--muted);
+    font-family:inherit; font-weight:600; font-size:14px; padding:9px 8px; border-radius:9px; cursor:pointer;
+    transition:.15s}
+  nav.tabs button.active{background:var(--accent); color:#04210f}
+  nav.tabs button:hover:not(.active){color:var(--ink); background:var(--panel2)}
+  .view{display:none; animation:fade .25s ease}
+  .view.active{display:block}
+  @keyframes fade{from{opacity:0; transform:translateY(6px)}to{opacity:1; transform:none}}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:18px}
+  .card + .card{margin-top:14px}
+  h2{font-size:18px; margin:0 0 4px; font-weight:800; letter-spacing:-.01em}
+  .sub{color:var(--muted); font-size:13.5px; margin:0 0 16px}
+  label{display:block; font-size:12px; color:var(--muted); margin-bottom:6px; font-weight:600;
+    text-transform:uppercase; letter-spacing:.05em}
+  input[type=text],input[type=password],select{
+    width:100%; background:var(--bg); border:1px solid var(--line); color:var(--ink);
+    padding:12px 13px; border-radius:10px; font-family:inherit; font-size:15px}
+  input:focus,select:focus{outline:none; border-color:var(--accent)}
+  .btn{background:var(--accent); color:#04210f; border:0; padding:12px 18px; border-radius:10px;
+    font-family:inherit; font-weight:700; font-size:15px; cursor:pointer; transition:.15s}
+  .btn:hover{filter:brightness(1.08)} .btn:active{transform:translateY(1px)}
+  .btn.sec{background:var(--panel2); color:var(--ink); border:1px solid var(--line)}
+  .btn:disabled{opacity:.45; cursor:not-allowed}
+  .msg{font-family:"Spline Sans Mono",monospace; font-size:13px; margin-top:12px; min-height:18px}
+  .msg.ok{color:var(--accent)} .msg.err{color:var(--accent2)}
+  /* match rows */
+  .roundsel{display:flex; gap:8px; align-items:center; margin-bottom:14px; flex-wrap:wrap}
+  .match{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:10px;
+    background:var(--panel2); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:10px}
+  .match .team{font-weight:600; font-size:15px}
+  .match .team.away{text-align:right}
+  .match .score{display:flex; align-items:center; gap:6px; justify-content:center}
+  .match .score input{width:46px; text-align:center; padding:8px 4px; font-family:"Spline Sans Mono",monospace;
+    font-size:16px; font-weight:600}
+  .match .meta{grid-column:1/-1; display:flex; justify-content:space-between; align-items:center;
+    margin-top:8px; font-family:"Spline Sans Mono",monospace; font-size:11.5px; color:var(--muted)}
+  .match.locked{opacity:.62}
+  .match.locked input{background:#0d1219; cursor:not-allowed}
+  .tag{padding:2px 7px; border-radius:6px; font-size:10.5px; font-weight:600; border:1px solid var(--line)}
+  .tag.live{color:var(--accent2); border-color:var(--accent2)}
+  .tag.done{color:var(--accent); border-color:var(--accent)}
+  .tag.open{color:var(--gold); border-color:var(--gold)}
+  .result{font-family:"Spline Sans Mono",monospace; color:var(--ink)}
+  .pts{font-family:"Spline Sans Mono",monospace; font-weight:600}
+  .pts.p3{color:var(--accent)} .pts.p1{color:var(--gold)} .pts.p0{color:var(--muted)}
+  /* standings */
+  table{width:100%; border-collapse:collapse}
+  th,td{text-align:left; padding:11px 12px; font-size:14px; border-bottom:1px solid var(--line)}
+  th{color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.06em; font-weight:600}
+  td.num,th.num{text-align:right; font-family:"Spline Sans Mono",monospace}
+  tr.me td{background:rgba(0,224,122,.06)}
+  .rank{font-family:"Spline Sans Mono",monospace; color:var(--muted); width:36px}
+  .rank.top{color:var(--gold); font-weight:700}
+  .total{font-family:"Spline Sans Mono",monospace; font-weight:700; font-size:16px; color:var(--accent)}
+  .loading{color:var(--muted); font-family:"Spline Sans Mono",monospace; font-size:13px; padding:8px 0}
+  .empty{color:var(--muted); text-align:center; padding:30px 10px; font-size:14px}
+  .hint{font-size:12px; color:var(--muted); margin-top:8px; line-height:1.5}
+  footer{margin-top:30px; text-align:center; color:var(--muted); font-size:12px;
+    font-family:"Spline Sans Mono",monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>malakabet</h1>
+      <span class="yr">WC2026</span>
+    </div>
+    <div class="whoami" id="whoami">not joined</div>
+  </header>
+  <p class="tagline">score predictions among friends · World Cup 2026</p>
+  <div class="scorekey">
+    <span class="pill"><b>3</b> exact score</span>
+    <span class="pill"><b>1</b> right outcome</span>
+    <span class="pill"><b>0</b> wrong</span>
+  </div>
+
+  <nav class="tabs">
+    <button data-tab="join" class="active">Join</button>
+    <button data-tab="bet">Bet</button>
+    <button data-tab="standings">Standings</button>
+  </nav>
+
+  <!-- JOIN -->
+  <section class="view active" id="view-join">
+    <div class="card">
+      <h2>Pick your nickname</h2>
+      <p class="sub">One nickname per player. It's stored on this device so you stay logged in.</p>
+      <label for="nick">Nickname</label>
+      <input type="text" id="nick" maxlength="20" placeholder="e.g. ElTri_Nostradamus" autocomplete="off" />
+      <div style="margin-top:14px; display:flex; gap:10px">
+        <button class="btn" id="joinBtn">Join league</button>
+        <button class="btn sec" id="leaveBtn" style="display:none">Switch player</button>
+      </div>
+      <div class="msg" id="joinMsg"></div>
+      <p class="hint">No password — this is a friends' league on trust. Anyone who knows your nickname could in theory bet as you, so pick something only your group recognizes.</p>
+    </div>
+  </section>
+
+  <!-- BET -->
+  <section class="view" id="view-bet">
+    <div class="card">
+      <h2>Place your bets</h2>
+      <p class="sub">Predict the final score of each match. The whole round locks at the first kickoff of that round.</p>
+      <div class="roundsel">
+        <label style="margin:0">Round</label>
+        <select id="roundSel" style="max-width:260px"></select>
+      </div>
+      <div id="matchList"><div class="loading">Loading matches…</div></div>
+      <div id="betActions" style="margin-top:14px; display:none">
+        <button class="btn" id="saveBets">Submit round</button>
+        <div class="msg" id="betMsg"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STANDINGS -->
+  <section class="view" id="view-standings">
+    <div class="card">
+      <h2>Standings</h2>
+      <p class="sub">Live leaderboard. Tie-break: most exact-score hits.</p>
+      <div id="standings"><div class="loading">Loading…</div></div>
+    </div>
+  </section>
+
+  <footer>malakabet · World Cup 2026</footer>
+</div>
+
+<script type="module">
+/* ───────────── CONFIG ───────────── */
+const SUPABASE_URL  = "https://bocszfurxyyzacgjzmjc.supabase.co";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJvY3N6ZnVyeHl5emFjZ2p6bWpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA4NDYyNjQsImV4cCI6MjA5NjQyMjI2NH0.eonkzgdDHrrEs6OmWIKAILLtRXSW4nZx27YrLsLWAXI";
+// This is the public ANON key (role:anon) — safe to ship. Row Level Security
+// protects the data. The service_role key NEVER appears here; match scores are
+// written only by GitHub Actions (cron + manual override) using the service key.
+
+const STAGES = {
+  MD1:"Group · Matchday 1", MD2:"Group · Matchday 2", MD3:"Group · Matchday 3",
+  R32:"Round of 32", R16:"Round of 16", QF:"Quarter-finals",
+  SF:"Semi-finals", "3RD":"Third place", FINAL:"Final"
+};
+const STAGE_ORDER = Object.keys(STAGES);
+
+/* ───────────── tiny supabase REST helper ───────────── */
+const rest = (path, opts={}) => fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+  ...opts,
+  headers:{
+    apikey:SUPABASE_ANON, Authorization:`Bearer ${SUPABASE_ANON}`,
+    "Content-Type":"application/json",
+    Prefer: opts.prefer || "return=representation",
+    ...(opts.headers||{})
+  }
+}).then(async r=>{ const t=await r.text(); if(!r.ok) throw new Error(t||r.status); return t?JSON.parse(t):null; });
+
+/* ───────────── state ───────────── */
+let me = JSON.parse(localStorage.getItem("wc_player") || "null"); // {id,nickname}
+let MATCHES = [];   // all matches
+let MY_PREDS = {};  // match_id -> {pred_home,pred_away}
+
+/* ───────────── helpers ───────────── */
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmtKO = iso => new Date(iso).toLocaleString([], {weekday:"short", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"});
+const isLocked = m => new Date(m.kickoff) <= new Date();
+function roundLocked(stage){ // whole round locks at first kickoff of the round
+  const ms = MATCHES.filter(m=>m.stage===stage);
+  if(!ms.length) return false;
+  const first = ms.reduce((a,b)=> new Date(a.kickoff)<new Date(b.kickoff)?a:b);
+  return new Date(first.kickoff) <= new Date();
+}
+function points(m, ph, pa){
+  if(m.home_score==null||m.away_score==null||ph==null||pa==null) return null;
+  if(ph===m.home_score && pa===m.away_score) return 3;
+  const ao=Math.sign(m.home_score-m.away_score), po=Math.sign(ph-pa);
+  return ao===po ? 1 : 0;
+}
+
+/* ───────────── tabs ───────────── */
+document.querySelectorAll("nav.tabs button").forEach(b=>{
+  b.onclick=()=>{
+    document.querySelectorAll("nav.tabs button").forEach(x=>x.classList.remove("active"));
+    document.querySelectorAll(".view").forEach(x=>x.classList.remove("active"));
+    b.classList.add("active");
+    $("#view-"+b.dataset.tab).classList.add("active");
+    if(b.dataset.tab==="bet") renderBet();
+    if(b.dataset.tab==="standings") renderStandings();
+  };
+});
+
+/* ───────────── join ───────────── */
+function refreshWhoami(){
+  $("#whoami").innerHTML = me ? `playing as <b>${esc(me.nickname)}</b>` : "not joined";
+  $("#leaveBtn").style.display = me ? "inline-block" : "none";
+  if(me) $("#nick").value = me.nickname;
+}
+$("#joinBtn").onclick = async ()=>{
+  const nick = $("#nick").value.trim();
+  const msg = $("#joinMsg");
+  if(nick.length<2){ msg.className="msg err"; msg.textContent="Pick at least 2 characters."; return; }
+  msg.className="msg"; msg.textContent="Joining…";
+  try{
+    // already exists?
+    const found = await rest(`players?nickname=eq.${encodeURIComponent(nick)}&select=*`);
+    let player;
+    if(found && found.length){ player = found[0]; }
+    else { const created = await rest("players",{method:"POST",body:JSON.stringify({nickname:nick})}); player = created[0]; }
+    me = {id:player.id, nickname:player.nickname};
+    localStorage.setItem("wc_player", JSON.stringify(me));
+    refreshWhoami();
+    msg.className="msg ok"; msg.textContent=`You're in as ${player.nickname}. Go to Bet.`;
+  }catch(e){
+    msg.className="msg err";
+    msg.textContent = String(e).includes("duplicate") ? "That nickname is taken." : "Error: "+e.message;
+  }
+};
+$("#leaveBtn").onclick = ()=>{ me=null; localStorage.removeItem("wc_player"); refreshWhoami();
+  $("#joinMsg").className="msg"; $("#joinMsg").textContent="Switched out. Enter a nickname to join."; $("#nick").value=""; };
+
+/* ───────────── data load ───────────── */
+async function loadMatches(){
+  MATCHES = await rest("matches?select=*&order=kickoff.asc") || [];
+}
+async function loadMyPreds(){
+  MY_PREDS = {};
+  if(!me) return;
+  const rows = await rest(`predictions?player_id=eq.${me.id}&select=match_id,pred_home,pred_away`) || [];
+  rows.forEach(r=> MY_PREDS[r.match_id]={pred_home:r.pred_home,pred_away:r.pred_away});
+}
+function fillRoundSelect(sel){
+  const present = STAGE_ORDER.filter(s=> MATCHES.some(m=>m.stage===s));
+  sel.innerHTML = present.map(s=>`<option value="${s}">${STAGES[s]}</option>`).join("")
+    || `<option value="">No matches yet</option>`;
+}
+
+/* ───────────── bet view ───────────── */
+async function renderBet(){
+  const list = $("#matchList");
+  if(!me){ list.innerHTML=`<div class="empty">Join the league first (Join tab).</div>`; $("#betActions").style.display="none"; return; }
+  list.innerHTML=`<div class="loading">Loading…</div>`;
+  try{
+    if(!MATCHES.length) await loadMatches();
+    await loadMyPreds();
+  }catch(e){ list.innerHTML=`<div class="empty">Couldn't load matches: ${esc(e.message)}</div>`; return; }
+  const sel=$("#roundSel");
+  if(!sel.dataset.init){ fillRoundSelect(sel); sel.dataset.init="1"; sel.onchange=()=>paintBet(sel.value); }
+  paintBet(sel.value || sel.options[0]?.value);
+}
+function paintBet(stage){
+  const list=$("#matchList");
+  const ms = MATCHES.filter(m=>m.stage===stage);
+  if(!ms.length){ list.innerHTML=`<div class="empty">No matches in this round yet.</div>`; $("#betActions").style.display="none"; return; }
+  const locked = roundLocked(stage);
+  list.innerHTML = ms.map(m=>{
+    const p = MY_PREDS[m.id]||{};
+    const mLock = locked || isLocked(m);
+    const played = m.home_score!=null && m.away_score!=null;
+    let tag = `<span class="tag open">open</span>`;
+    if(played) tag=`<span class="tag done">FT ${m.home_score}–${m.away_score}</span>`;
+    else if(mLock) tag=`<span class="tag live">locked</span>`;
+    let ptsHtml="";
+    if(played && p.pred_home!=null){ const pt=points(m,p.pred_home,p.pred_away); ptsHtml=`<span class="pts p${pt}">+${pt} pts</span>`; }
+    return `<div class="match ${mLock?'locked':''}" data-id="${m.id}">
+      <div class="team">${esc(m.home_team)}</div>
+      <div class="score">
+        <input type="number" min="0" max="30" class="ph" value="${p.pred_home??""}" ${mLock?'disabled':''}/>
+        <span style="color:var(--muted)">–</span>
+        <input type="number" min="0" max="30" class="pa" value="${p.pred_away??""}" ${mLock?'disabled':''}/>
+      </div>
+      <div class="team away">${esc(m.away_team)}</div>
+      <div class="meta"><span>${fmtKO(m.kickoff)}</span><span>${tag}${ptsHtml}</span></div>
+    </div>`;
+  }).join("");
+  $("#betActions").style.display = locked ? "none" : "block";
+  if(locked){ list.insertAdjacentHTML("afterbegin",`<div class="hint" style="margin-bottom:10px">This round is locked — first match has kicked off.</div>`); }
+}
+$("#saveBets").onclick = async ()=>{
+  const msg=$("#betMsg"); msg.className="msg"; msg.textContent="Saving…";
+  const rows=[];
+  document.querySelectorAll("#matchList .match:not(.locked)").forEach(el=>{
+    const ph=el.querySelector(".ph").value, pa=el.querySelector(".pa").value;
+    if(ph!==""&&pa!==""){ rows.push({player_id:me.id, match_id:Number(el.dataset.id), pred_home:Number(ph), pred_away:Number(pa)}); }
+  });
+  if(!rows.length){ msg.className="msg err"; msg.textContent="Enter at least one score."; return; }
+  try{
+    await rest("predictions",{method:"POST", prefer:"resolution=merge-duplicates,return=minimal", body:JSON.stringify(rows)});
+    await loadMyPreds(); paintBet($("#roundSel").value);
+    msg.className="msg ok"; msg.textContent=`Saved ${rows.length} prediction(s).`;
+  }catch(e){ msg.className="msg err"; msg.textContent="Error: "+e.message; }
+};
+
+/* ───────────── standings ───────────── */
+async function renderStandings(){
+  const box=$("#standings"); box.innerHTML=`<div class="loading">Loading…</div>`;
+  try{
+    const [players, preds] = await Promise.all([
+      rest("players?select=id,nickname"),
+      rest("predictions?select=player_id,match_id,pred_home,pred_away")
+    ]);
+    if(!MATCHES.length) await loadMatches();
+    const mById={}; MATCHES.forEach(m=>mById[m.id]=m);
+    const tally={}; players.forEach(p=> tally[p.id]={nick:p.nickname, pts:0, exact:0, played:0});
+    preds.forEach(pr=>{
+      const m=mById[pr.match_id]; if(!m) return;
+      const pt=points(m, pr.pred_home, pr.pred_away); if(pt==null) return;
+      const t=tally[pr.player_id]; if(!t) return;
+      t.pts+=pt; t.played++; if(pt===3) t.exact++;
+    });
+    const rows=Object.entries(tally).map(([id,t])=>({id,...t}))
+      .sort((a,b)=> b.pts-a.pts || b.exact-a.exact || a.nick.localeCompare(b.nick));
+    if(!rows.length){ box.innerHTML=`<div class="empty">No players yet.</div>`; return; }
+    box.innerHTML=`<table><thead><tr>
+      <th class="rank">#</th><th>Player</th><th class="num">Exact</th><th class="num">Played</th><th class="num">Pts</th>
+    </tr></thead><tbody>${rows.map((r,i)=>`
+      <tr class="${me&&me.id===r.id?'me':''}">
+        <td class="rank ${i===0?'top':''}">${i+1}</td>
+        <td>${esc(r.nick)}${me&&me.id===r.id?' ·you':''}</td>
+        <td class="num">${r.exact}</td>
+        <td class="num">${r.played}</td>
+        <td class="num"><span class="total">${r.pts}</span></td>
+      </tr>`).join("")}</tbody></table>`;
+  }catch(e){ box.innerHTML=`<div class="empty">Couldn't load: ${esc(e.message)}</div>`; }
+}
+
+/* ───────────── boot ───────────── */
+refreshWhoami();
+loadMatches().catch(()=>{});
+</script>
+</body>
+</html>

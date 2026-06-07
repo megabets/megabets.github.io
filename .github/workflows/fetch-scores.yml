@@ -1,0 +1,31 @@
+name: fetch-scores
+
+# Auto-refresh World Cup fixtures + scores into Supabase.
+# Runs on a timer and on demand. All secrets live in repo Actions secrets —
+# nothing sensitive is ever committed or exposed to the browser.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # every 15 min (GitHub cron may drift a few minutes)
+  workflow_dispatch: {}        # manual "Run workflow" button
+
+# Avoid overlapping runs piling up
+concurrency:
+  group: fetch-scores
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: Seed / refresh matches
+        env:
+          FOOTBALL_TOKEN: ${{ secrets.FOOTBALL_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python3 seed_matches.py

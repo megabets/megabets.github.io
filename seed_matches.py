@@ -18,7 +18,7 @@ Where to get the keys:
 Re-run anytime to pull newly-scheduled knockout matches and latest scores.
 It UPSERTS by match id, so existing rows are updated, not duplicated.
 """
-import os, sys, requests
+import os, sys, time, requests
 
 FOOTBALL_TOKEN = os.environ.get("FOOTBALL_TOKEN")
 SUPABASE_URL   = os.environ.get("SUPABASE_URL", "https://bocszfurxyyzacgjzmjc.supabase.co")
@@ -27,13 +27,13 @@ SERVICE_KEY    = os.environ.get("SUPABASE_SERVICE_KEY")
 if not FOOTBALL_TOKEN or not SERVICE_KEY:
     sys.exit("Set FOOTBALL_TOKEN and SUPABASE_SERVICE_KEY env vars. See header.")
 
-# football-data.org stage -> our stage code
+# football-data.org v4 stage enum -> our stage code
 STAGE_MAP = {
-    "LAST_32": "R32", "ROUND_OF_32": "R32",
-    "LAST_16": "R16", "ROUND_OF_16": "R16",
-    "QUARTER_FINALS": "QF", "QUARTER_FINAL": "QF",
-    "SEMI_FINALS": "SF", "SEMI_FINAL": "SF",
-    "THIRD_PLACE": "3RD", "PLAYOFF_FOR_THIRD_PLACE": "3RD",
+    "LAST_32": "R32",
+    "LAST_16": "R16",
+    "QUARTER_FINALS": "QF",
+    "SEMI_FINALS": "SF",
+    "THIRD_PLACE": "3RD",
     "FINAL": "FINAL",
 }
 
@@ -46,10 +46,24 @@ def map_stage(m):
 
 def fetch_matches():
     url = "https://api.football-data.org/v4/competitions/WC/matches"
-    r = requests.get(url, headers={"X-Auth-Token": FOOTBALL_TOKEN})
-    if r.status_code != 200:
+    attempts = 3
+    for n in range(1, attempts + 1):
+        try:
+            r = requests.get(url, headers={"X-Auth-Token": FOOTBALL_TOKEN}, timeout=30)
+        except requests.RequestException as e:
+            if n == attempts:
+                sys.exit(f"football-data request failed after {attempts} tries: {e}")
+            print(f"football-data request error ({e}); retry {n}/{attempts - 1}")
+            time.sleep(2 * n)
+            continue
+        if r.status_code == 200:
+            return r.json().get("matches", [])
+        # 429 (rate limit) and 5xx are transient; retry. Other 4xx are not.
+        if r.status_code in (429, 500, 502, 503, 504) and n < attempts:
+            print(f"football-data {r.status_code}; retry {n}/{attempts - 1}")
+            time.sleep(2 * n)
+            continue
         sys.exit(f"football-data error {r.status_code}: {r.text[:300]}")
-    return r.json().get("matches", [])
 
 def to_row(m):
     ft = (m.get("score") or {}).get("fullTime") or {}

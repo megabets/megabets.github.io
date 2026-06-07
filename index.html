@@ -138,7 +138,10 @@
   <!-- BET -->
   <section class="view" id="view-bet">
     <div class="card">
-      <h2>Place your bets</h2>
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px">
+        <h2>Place your bets</h2>
+        <button class="btn sec" id="fillRandom" style="padding:8px 12px; font-size:13px; display:none">🎲 Fill randomly</button>
+      </div>
       <p class="sub">Predict the final score of each match. The whole round locks at the first kickoff of that round.</p>
       <div class="roundsel">
         <label style="margin:0">Round</label>
@@ -309,8 +312,18 @@ function paintBet(stage){
     </div>`;
   }).join("");
   $("#betActions").style.display = locked ? "none" : "block";
+  $("#fillRandom").style.display = locked ? "none" : "inline-block";
   if(locked){ list.insertAdjacentHTML("afterbegin",`<div class="hint" style="margin-bottom:10px">This round is locked — first match has kicked off.</div>`); }
 }
+// Testing helper: fill every open match in the current round with a random 0–4 score.
+$("#fillRandom").onclick = ()=>{
+  const rnd = ()=> Math.floor(Math.random()*5); // 0–4
+  document.querySelectorAll("#matchList .match:not(.locked)").forEach(el=>{
+    el.querySelector(".ph").value = rnd();
+    el.querySelector(".pa").value = rnd();
+  });
+  const msg=$("#betMsg"); msg.className="msg"; msg.textContent="Filled with random scores — review, then Submit round.";
+};
 $("#saveBets").onclick = async ()=>{
   const msg=$("#betMsg"); msg.className="msg"; msg.textContent="Saving…";
   const rows=[];

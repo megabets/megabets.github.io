@@ -329,6 +329,7 @@ async function hashPin(nick, pin){
 // Mint/revoke codes with the `invite-code` skill (.claude/skills/invite-code).
 const INVITE_HASHES = [
   "d287bc1ddabd7061431059e42910395864df27239c8d6d1416fa59f34bf73eef", // minted 2026-06-08
+  "ebe7a7fb1cd6740ed29486e32b05a39a5551ae9ff1cf3b5d07120ee9e5d2c92e", // minted 2026-06-08
 ];
 async function hashInvite(code){
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(code.trim().toUpperCase()));

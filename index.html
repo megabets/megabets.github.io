@@ -234,7 +234,10 @@
     <button class="modal-close" id="confirmClose" aria-label="Close">×</button>
     <h2>Confirm your PIN</h2>
     <p class="sub">You're claiming this nickname for the first time. Re-enter your PIN to lock it in — you'll need this PIN every time you join as this nickname.</p>
-    <label for="pinConfirm">Re-enter PIN</label>
+    <p class="sub">This is an invite only game. Pay the entry fee to the organisers, and you'll be given an invite code.</p>
+    <label for="inviteCode">Provide your invite code</label>
+    <input type="text" id="inviteCode" maxlength="40" placeholder="e.g. WC26-XXXX" autocomplete="off" autocapitalize="characters" />
+    <label for="pinConfirm" style="margin-top:14px">Re-enter PIN</label>
     <input type="password" id="pinConfirm" inputmode="numeric" maxlength="6" placeholder="Same PIN again" autocomplete="off" />
     <div style="margin-top:14px">
       <button class="btn" id="confirmBtn">Confirm &amp; join</button>
@@ -320,6 +323,14 @@ async function hashPin(nick, pin){
   const buf = await crypto.subtle.digest("SHA-256", data);
   return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
 }
+// Invite gate (first-time registration only). We store ONLY the SHA-256 of the
+// code (trimmed + upper-cased) so the plaintext isn't visible in this public
+// source — a deterrent, like the PINs above, not bank-grade security.
+const INVITE_HASH = "d287bc1ddabd7061431059e42910395864df27239c8d6d1416fa59f34bf73eef";
+async function hashInvite(code){
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(code.trim().toUpperCase()));
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
+}
 
 /* ───────────── tabs ───────────── */
 document.querySelectorAll("nav.tabs button").forEach(b=>{
@@ -359,8 +370,8 @@ $("#loginModal").onclick = e=>{ if(e.target===$("#loginModal")) closeLogin(); };
 function openConfirm(){
   $("#confirmModal").classList.add("open");
   $("#confirmMsg").className="msg"; $("#confirmMsg").textContent="";
-  $("#pinConfirm").value="";
-  setTimeout(()=>$("#pinConfirm").focus(), 50);
+  $("#inviteCode").value=""; $("#pinConfirm").value="";
+  setTimeout(()=>$("#inviteCode").focus(), 50);
 }
 function closeConfirm(){ $("#confirmModal").classList.remove("open"); pendingJoin=null; }
 $("#confirmClose").onclick = closeConfirm;
@@ -368,6 +379,11 @@ $("#confirmModal").onclick = e=>{ if(e.target===$("#confirmModal")) closeConfirm
 $("#confirmBtn").onclick = async ()=>{
   if(!pendingJoin) return;
   const cmsg = $("#confirmMsg");
+  const code = $("#inviteCode").value.trim();
+  if(!code || await hashInvite(code) !== INVITE_HASH){
+    cmsg.className="msg err"; cmsg.textContent="Invalid invite code.";
+    $("#inviteCode").focus(); return;
+  }
   if($("#pinConfirm").value.trim() !== pendingJoin.pin){
     cmsg.className="msg err"; cmsg.textContent="PINs don't match. Try again.";
     $("#pinConfirm").value=""; $("#pinConfirm").focus(); return;

@@ -323,10 +323,13 @@ async function hashPin(nick, pin){
   const buf = await crypto.subtle.digest("SHA-256", data);
   return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
 }
-// Invite gate (first-time registration only). We store ONLY the SHA-256 of the
+// Invite gate (first-time registration only). We store ONLY the SHA-256 of each
 // code (trimmed + upper-cased) so the plaintext isn't visible in this public
 // source — a deterrent, like the PINs above, not bank-grade security.
-const INVITE_HASH = "d287bc1ddabd7061431059e42910395864df27239c8d6d1416fa59f34bf73eef";
+// Mint/revoke codes with the `invite-code` skill (.claude/skills/invite-code).
+const INVITE_HASHES = [
+  "d287bc1ddabd7061431059e42910395864df27239c8d6d1416fa59f34bf73eef", // minted 2026-06-08
+];
 async function hashInvite(code){
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(code.trim().toUpperCase()));
   return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
@@ -380,7 +383,7 @@ $("#confirmBtn").onclick = async ()=>{
   if(!pendingJoin) return;
   const cmsg = $("#confirmMsg");
   const code = $("#inviteCode").value.trim();
-  if(!code || await hashInvite(code) !== INVITE_HASH){
+  if(!code || !INVITE_HASHES.includes(await hashInvite(code))){
     cmsg.className="msg err"; cmsg.textContent="Invalid invite code.";
     $("#inviteCode").focus(); return;
   }

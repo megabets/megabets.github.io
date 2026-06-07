@@ -400,6 +400,15 @@ $("#confirmBtn").onclick = async ()=>{
     cmsg.textContent = String(e).includes("duplicate") ? "That nickname is taken." : "Error: "+e.message;
   }
 };
+// pressing Enter in a modal's inputs acts like clicking its confirm button
+function submitOnEnter(inputIds, btnId){
+  inputIds.forEach(id => $("#"+id).addEventListener("keydown", e=>{
+    if(e.key === "Enter"){ e.preventDefault(); $("#"+btnId).click(); }
+  }));
+}
+submitOnEnter(["nick","pin"], "joinBtn");                  // Login modal
+submitOnEnter(["inviteCode","pinConfirm"], "confirmBtn");  // Confirm PIN modal
+submitOnEnter(["secretGuess"], "secretSubmit");            // Secret modal
 // user chip dropdown
 $("#userChip").onclick = e=>{ e.stopPropagation(); $("#userMenu").classList.toggle("open"); };
 document.addEventListener("click", ()=> $("#userMenu").classList.remove("open"));

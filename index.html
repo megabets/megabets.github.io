@@ -27,8 +27,32 @@
   .brand{display:flex; align-items:baseline; gap:10px}
   .brand h1{font-size:clamp(22px,4.5vw,34px); font-weight:800; letter-spacing:-.02em; margin:0; line-height:1}
   .brand .yr{font-family:"Spline Sans Mono",monospace; color:var(--accent); font-size:14px; font-weight:600}
-  .whoami{font-family:"Spline Sans Mono",monospace; font-size:13px; color:var(--muted); text-align:right}
-  .whoami b{color:var(--ink)}
+  /* account (top-right) */
+  .account{position:relative}
+  .loginbtn{background:var(--accent); color:#04210f; border:0; padding:9px 16px; border-radius:10px;
+    font-family:inherit; font-weight:700; font-size:14px; cursor:pointer; transition:.15s}
+  .loginbtn:hover{filter:brightness(1.08)} .loginbtn:active{transform:translateY(1px)}
+  .userchip{display:flex; align-items:center; gap:8px; background:var(--panel2); border:1px solid var(--accent);
+    color:var(--ink); padding:7px 12px; border-radius:999px; cursor:pointer; font-family:inherit;
+    font-size:14px; transition:.15s}
+  .userchip:hover{background:#1b2636}
+  .userchip .dot{width:8px; height:8px; border-radius:50%; background:var(--accent); box-shadow:0 0 8px var(--accent)}
+  .userchip b{font-weight:700; letter-spacing:-.01em}
+  .userchip .caret{color:var(--muted); font-size:11px}
+  .usermenu{position:absolute; right:0; top:calc(100% + 8px); background:var(--panel); border:1px solid var(--line);
+    border-radius:10px; padding:6px; min-width:160px; box-shadow:0 12px 30px rgba(0,0,0,.4); z-index:20; display:none}
+  .usermenu.open{display:block}
+  .usermenu button{display:block; width:100%; text-align:left; background:transparent; border:0; color:var(--ink);
+    font-family:inherit; font-size:14px; padding:9px 10px; border-radius:7px; cursor:pointer}
+  .usermenu button:hover{background:var(--panel2)}
+  /* login modal */
+  .backdrop{position:fixed; inset:0; background:rgba(5,8,12,.7); backdrop-filter:blur(3px);
+    display:none; align-items:flex-start; justify-content:center; padding:80px 18px 18px; z-index:50}
+  .backdrop.open{display:flex; animation:fade .2s ease}
+  .modal{position:relative; width:100%; max-width:460px}
+  .modal-close{position:absolute; top:12px; right:14px; background:transparent; border:0; color:var(--muted);
+    font-size:24px; line-height:1; cursor:pointer; padding:0}
+  .modal-close:hover{color:var(--ink)}
   .tagline{font-family:"Spline Sans Mono",monospace; font-size:13px; color:var(--muted); margin:2px 0 0}
   .scorekey{display:flex; gap:14px; flex-wrap:wrap; font-size:12.5px; color:var(--muted); margin:10px 0 18px;
     font-family:"Spline Sans Mono",monospace}
@@ -104,9 +128,17 @@
       <h1>malakabet</h1>
       <span class="yr">WC2026</span>
     </div>
-    <div class="whoami" id="whoami">not joined</div>
+    <div class="account">
+      <button class="loginbtn" id="loginBtn">Log in</button>
+      <button class="userchip" id="userChip" style="display:none">
+        <span class="dot"></span><b id="userName"></b><span class="caret">▾</span>
+      </button>
+      <div class="usermenu" id="userMenu">
+        <button id="switchBtn">Switch player</button>
+      </div>
+    </div>
   </header>
-  <p class="tagline">score predictions among friends · World Cup 2026</p>
+  <p class="tagline">score predictions for money · World Cup 2026</p>
   <div class="scorekey">
     <span class="pill"><b>3</b> exact score</span>
     <span class="pill"><b>1</b> right outcome</span>
@@ -114,28 +146,9 @@
   </div>
 
   <nav class="tabs">
-    <button data-tab="join" class="active">Join</button>
     <button data-tab="bet">Bet</button>
-    <button data-tab="standings">Ranking</button>
+    <button data-tab="standings" class="active">Ranking</button>
   </nav>
-
-  <!-- JOIN -->
-  <section class="view active" id="view-join">
-    <div class="card">
-      <h2>Pick your nickname</h2>
-      <p class="sub">One nickname per player, locked with a PIN. It's stored on this device so you stay logged in.</p>
-      <label for="nick">Nickname</label>
-      <input type="text" id="nick" maxlength="20" placeholder="e.g. ElTri_Nostradamus" autocomplete="off" />
-      <label for="pin" style="margin-top:14px">PIN</label>
-      <input type="password" id="pin" inputmode="numeric" maxlength="6" placeholder="4–6 digits" autocomplete="off" />
-      <div style="margin-top:14px; display:flex; gap:10px">
-        <button class="btn" id="joinBtn">Join league</button>
-        <button class="btn sec" id="leaveBtn" style="display:none">Switch player</button>
-      </div>
-      <div class="msg" id="joinMsg"></div>
-      <p class="hint">Your nickname is locked with a PIN you choose the first time you join — after that, joining as that nickname needs the matching PIN. It's a light deterrent for a friends' league, not bank-grade security, so keep your PIN to yourself and don't reuse a sensitive one.</p>
-    </div>
-  </section>
 
   <!-- BET -->
   <section class="view" id="view-bet">
@@ -158,7 +171,7 @@
   </section>
 
   <!-- STANDINGS -->
-  <section class="view" id="view-standings">
+  <section class="view active" id="view-standings">
     <div class="card">
       <h2>Ranking</h2>
       <p class="sub">Live leaderboard. Tie-break: most exact-score hits.</p>
@@ -167,6 +180,24 @@
   </section>
 
   <footer>malakabet · World Cup 2026</footer>
+</div>
+
+<!-- LOGIN MODAL -->
+<div class="backdrop" id="loginModal">
+  <div class="card modal">
+    <button class="modal-close" id="loginClose" aria-label="Close">×</button>
+    <h2>Pick your nickname</h2>
+    <p class="sub">One nickname per player, locked with a PIN. It's stored on this device so you stay logged in.</p>
+    <label for="nick">Nickname</label>
+    <input type="text" id="nick" maxlength="20" placeholder="e.g. ElTri_Nostradamus" autocomplete="off" />
+    <label for="pin" style="margin-top:14px">PIN</label>
+    <input type="password" id="pin" inputmode="numeric" maxlength="6" placeholder="4–6 digits" autocomplete="off" />
+    <div style="margin-top:14px">
+      <button class="btn" id="joinBtn">Join league</button>
+    </div>
+    <div class="msg" id="joinMsg"></div>
+    <p class="hint">Your nickname is locked with a PIN you choose the first time you join — after that, joining as that nickname needs the matching PIN. It's a light deterrent for a friends' league, not bank-grade security, so keep your PIN to yourself and don't reuse a sensitive one.</p>
+  </div>
 </div>
 
 <script type="module">
@@ -237,12 +268,31 @@ document.querySelectorAll("nav.tabs button").forEach(b=>{
   };
 });
 
-/* ───────────── join ───────────── */
+/* ───────────── account / login modal ───────────── */
 function refreshWhoami(){
-  $("#whoami").innerHTML = me ? `playing as <b>${esc(me.nickname)}</b>` : "not joined";
-  $("#leaveBtn").style.display = me ? "inline-block" : "none";
-  if(me) $("#nick").value = me.nickname;
+  if(me){
+    $("#loginBtn").style.display = "none";
+    $("#userChip").style.display = "flex";
+    $("#userName").textContent = me.nickname;
+    $("#nick").value = me.nickname;
+  } else {
+    $("#loginBtn").style.display = "inline-block";
+    $("#userChip").style.display = "none";
+    $("#userMenu").classList.remove("open");
+  }
 }
+function openLogin(){
+  $("#loginModal").classList.add("open");
+  $("#joinMsg").className="msg"; $("#joinMsg").textContent="";
+  setTimeout(()=>$("#nick").focus(), 50);
+}
+function closeLogin(){ $("#loginModal").classList.remove("open"); }
+$("#loginBtn").onclick = openLogin;
+$("#loginClose").onclick = closeLogin;
+$("#loginModal").onclick = e=>{ if(e.target===$("#loginModal")) closeLogin(); };
+// user chip dropdown
+$("#userChip").onclick = e=>{ e.stopPropagation(); $("#userMenu").classList.toggle("open"); };
+document.addEventListener("click", ()=> $("#userMenu").classList.remove("open"));
 $("#joinBtn").onclick = async ()=>{
   const nick = $("#nick").value.trim();
   const pin = $("#pin").value.trim();
@@ -268,14 +318,27 @@ $("#joinBtn").onclick = async ()=>{
     me = {id:player.id, nickname:player.nickname};
     localStorage.setItem("wc_player", JSON.stringify(me));
     refreshWhoami();
-    msg.className="msg ok"; msg.textContent=`You're in as ${player.nickname}. Go to Bet.`;
+    msg.className="msg ok"; msg.textContent=`You're in as ${player.nickname}.`;
+    $("#pin").value="";
+    setTimeout(closeLogin, 700);
+    // refresh whichever view is showing
+    if($("#view-bet").classList.contains("active")) renderBet();
+    if($("#view-standings").classList.contains("active")) renderStandings();
   }catch(e){
     msg.className="msg err";
     msg.textContent = String(e).includes("duplicate") ? "That nickname is taken." : "Error: "+e.message;
   }
 };
-$("#leaveBtn").onclick = ()=>{ me=null; localStorage.removeItem("wc_player"); refreshWhoami();
-  $("#joinMsg").className="msg"; $("#joinMsg").textContent="Switched out. Enter a nickname to join."; $("#nick").value=""; $("#pin").value=""; };
+$("#switchBtn").onclick = ()=>{
+  me=null; localStorage.removeItem("wc_player");
+  $("#userMenu").classList.remove("open");
+  refreshWhoami();
+  $("#nick").value=""; $("#pin").value="";
+  // refresh whichever view is showing
+  if($("#view-bet").classList.contains("active")) renderBet();
+  if($("#view-standings").classList.contains("active")) renderStandings();
+  openLogin();
+};
 
 /* ───────────── data load ───────────── */
 async function loadMatches(){
@@ -296,7 +359,11 @@ function fillRoundSelect(sel){
 /* ───────────── bet view ───────────── */
 async function renderBet(){
   const list = $("#matchList");
-  if(!me){ list.innerHTML=`<div class="empty">Join the league first (Join tab).</div>`; $("#betActions").style.display="none"; return; }
+  if(!me){
+    list.innerHTML=`<div class="empty">Log in to place bets.<br><button class="btn" id="betLoginBtn" style="margin-top:14px">Log in</button></div>`;
+    $("#betLoginBtn").onclick = openLogin;
+    $("#betActions").style.display="none"; $("#fillRandom").style.display="none"; return;
+  }
   list.innerHTML=`<div class="loading">Loading…</div>`;
   try{
     if(!MATCHES.length) await loadMatches();
@@ -395,6 +462,7 @@ async function renderStandings(){
 /* ───────────── boot ───────────── */
 refreshWhoami();
 loadMatches().catch(()=>{});
+renderStandings();
 </script>
 </body>
 </html>

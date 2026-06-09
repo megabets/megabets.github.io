@@ -142,10 +142,6 @@
   footer{margin-top:30px; text-align:center; color:var(--muted); font-size:12px;
     font-family:"Spline Sans Mono",monospace}
   /* chat */
-  nav.tabs button .unread{display:inline-block; width:7px; height:7px; border-radius:50%;
-    background:var(--accent2); margin-left:6px; vertical-align:middle; box-shadow:0 0 6px var(--accent2)}
-  nav.tabs button .unread[hidden]{display:none}
-  nav.tabs button.active .unread{background:#04210f; box-shadow:none}
   #chatLog{display:flex; flex-direction:column; gap:8px; max-height:min(56vh,460px); overflow-y:auto;
     padding:4px 2px; margin-bottom:12px}
   .cmsg{display:flex; flex-direction:column; gap:2px; max-width:82%; align-self:flex-start}
@@ -205,7 +201,7 @@
   <nav class="tabs">
     <button data-tab="bet">Bet</button>
     <button data-tab="standings" class="active">Ranking</button>
-    <button data-tab="chat">Chat<span class="unread" id="chatUnread" hidden></span></button>
+    <button data-tab="chat">Chat</button>
   </nav>
 
   <!-- BET -->
@@ -341,9 +337,9 @@ let MATCHES = [];   // all matches
 let MY_PREDS = {};  // match_id -> {pred_home,pred_away}
 const ADMIN_NICK = "trololoic"; // organizer who may edit the hidden "Paid" column
 let showPaid = false; // revealed for this session by tapping the footer 5×
-let CHAT = [];             // loaded chat messages, ascending by created_at
-let chatTimer = null;      // 3s full-poll interval, runs only while the Chat tab is open
-let lastSeenChatId = null; // newest message id the user has seen (drives the unread dot)
+let CHAT = [];           // loaded chat messages, ascending by created_at
+let chatTimer = null;    // 3s poll interval, runs only while the Chat tab is open
+let chatRendered = false; // has the log been painted at least once this session?
 
 /* ───────────── helpers ───────────── */
 const $ = s => document.querySelector(s);
@@ -775,7 +771,6 @@ async function renderStandings(){
 
 /* ───────────── chat ───────────── */
 const chatActive = () => $("#view-chat").classList.contains("active");
-function setUnread(on){ $("#chatUnread").hidden = !on; }
 
 function renderChat(msgs){
   const box = $("#chatLog");
@@ -807,8 +802,6 @@ async function loadChat(){
     renderChat(rows);
     if(atBottom) box.scrollTop = box.scrollHeight;
   }
-  lastSeenChatId = newest; // viewing the tab marks everything seen
-  setUnread(false);
 }
 
 async function sendChat(){
@@ -840,17 +833,6 @@ async function deleteChat(id){
 
 function startChatPoll(){ if(!chatTimer) chatTimer = setInterval(loadChat, 3000); }
 function stopChatPoll(){ if(chatTimer){ clearInterval(chatTimer); chatTimer = null; } }
-
-// Lightweight background check: surfaces the unread dot when a new message
-// arrives while the user is on another tab. Cheap — fetches just the newest id.
-async function checkChatUnread(){
-  if(chatActive() || document.hidden) return;
-  let rows;
-  try{ rows = await rest("messages?select=id&order=created_at.desc&limit=1"); }
-  catch(e){ return; }
-  const newest = rows && rows[0] ? rows[0].id : null;
-  if(newest && newest !== lastSeenChatId) setUnread(true);
-}
 
 $("#chatSend").onclick = sendChat;
 submitOnEnter(["chatInput"], "chatSend");
@@ -904,12 +886,6 @@ loadMatches().then(()=>{
   }
 }).catch(()=>{});
 renderStandings();
-// Seed the unread baseline to the newest existing message so the dot only lights
-// for messages that arrive during this session, then poll lightly in the background.
-rest("messages?select=id&order=created_at.desc&limit=1")
-  .then(rows=>{ lastSeenChatId = rows && rows[0] ? rows[0].id : null; })
-  .catch(()=>{});
-setInterval(checkChatUnread, 10000);
 </script>
 </body>
 </html>

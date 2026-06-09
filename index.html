@@ -180,7 +180,10 @@
     <div class="card">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:10px">
         <h2>Place your bets</h2>
-        <button class="btn sec" id="fillRandom" style="padding:8px 12px; font-size:13px; display:none">🎲 Auto-fill empty bets</button>
+        <div style="display:flex; gap:8px">
+          <button class="btn sec" id="deadlineReopen" style="padding:8px 12px; font-size:13px; display:none">⏱ Deadline</button>
+          <button class="btn sec" id="fillRandom" style="padding:8px 12px; font-size:13px; display:none">🎲 Auto-fill empty bets</button>
+        </div>
       </div>
       <p class="sub">Predict the final score of each match. The whole round locks at the first kickoff of that round.</p>
       <div class="roundsel">
@@ -243,6 +246,17 @@
   </div>
 </div>
 
+<!-- BETTING DEADLINE COUNTDOWN MODAL -->
+<div class="backdrop" id="deadlineModal">
+  <div class="card modal">
+    <button class="modal-close" id="deadlineClose" aria-label="Close">×</button>
+    <h2 id="deadlineTitle">YOU HAVE … TO PLACE YOUR BETS</h2>
+    <p class="sub" id="deadlineSub"></p>
+    <div id="deadlineClock" style="text-align:center;font-size:44px;font-weight:700;color:var(--accent);font-family:'Spline Sans Mono',monospace;margin:8px 0">--:--:--</div>
+    <button class="btn" id="deadlineOk" style="width:100%">Got it</button>
+  </div>
+</div>
+
 <script type="module">
 /* ───────────── CONFIG ───────────── */
 const SUPABASE_URL  = "https://bocszfurxyyzacgjzmjc.supabase.co";
@@ -287,6 +301,15 @@ function roundLocked(stage){ // whole round locks at first kickoff of the round
   if(!ms.length) return false;
   const first = ms.reduce((a,b)=> new Date(a.kickoff)<new Date(b.kickoff)?a:b);
   return new Date(first.kickoff) <= new Date();
+}
+function nextOpenRound(){ // {stage,label,kickoff} of earliest not-yet-locked stage, or null
+  for(const stage of STAGE_ORDER){
+    const ms = MATCHES.filter(m=>m.stage===stage);
+    if(!ms.length) continue;
+    const first = ms.reduce((a,b)=> new Date(a.kickoff)<new Date(b.kickoff)?a:b);
+    if(new Date(first.kickoff) > new Date()) return {stage, label:STAGES[stage], kickoff:first.kickoff};
+  }
+  return null;
 }
 function points(m, ph, pa){
   if(m.home_score==null||m.away_score==null||ph==null||pa==null) return null;
@@ -349,6 +372,44 @@ function closeLogin(){ $("#loginModal").classList.remove("open"); }
 $("#loginBtn").onclick = openLogin;
 $("#loginClose").onclick = closeLogin;
 $("#loginModal").onclick = e=>{ if(e.target===$("#loginModal")) closeLogin(); };
+
+/* ───────────── betting deadline countdown ───────────── */
+let deadlineTimer = null;
+let deadlineKickoff = null;
+function tickDeadline(){
+  const diff = new Date(deadlineKickoff) - new Date();
+  if(diff <= 0){
+    $("#deadlineTitle").textContent = "Betting is closed for this round";
+    $("#deadlineClock").textContent = "00:00:00";
+    clearInterval(deadlineTimer); deadlineTimer = null;
+    return;
+  }
+  const h = Math.floor(diff/3.6e6), m = Math.floor(diff%3.6e6/6e4), s = Math.floor(diff%6e4/1e3);
+  const pad = n => String(n).padStart(2,"0");
+  $("#deadlineClock").textContent = `${pad(h)}:${pad(m)}:${pad(s)}`;
+  $("#deadlineTitle").textContent = h < 1
+    ? "LESS THAN AN HOUR TO PLACE YOUR BETS"
+    : `YOU HAVE ${h} HOUR${h===1?"":"S"} TO PLACE YOUR BETS`;
+}
+function openDeadline(){
+  const r = nextOpenRound();
+  if(!r) return;
+  deadlineKickoff = r.kickoff;
+  $("#deadlineSub").textContent = `${r.label} · closes ${fmtKO(r.kickoff)}`;
+  clearInterval(deadlineTimer);
+  tickDeadline();
+  deadlineTimer = setInterval(tickDeadline, 1000);
+  $("#deadlineModal").classList.add("open");
+}
+function closeDeadline(){
+  clearInterval(deadlineTimer); deadlineTimer = null;
+  $("#deadlineModal").classList.remove("open");
+}
+$("#deadlineOk").onclick = closeDeadline;
+$("#deadlineClose").onclick = closeDeadline;
+$("#deadlineModal").onclick = e=>{ if(e.target===$("#deadlineModal")) closeDeadline(); };
+$("#deadlineReopen").onclick = openDeadline;
+
 // confirm-PIN modal (first-time registration)
 function openConfirm(){
   $("#confirmModal").classList.add("open");
@@ -496,6 +557,7 @@ async function renderBet(){
     if(!MATCHES.length) await loadMatches();
     await loadMyPreds();
   }catch(e){ list.innerHTML=`<div class="empty">Couldn't load matches: ${esc(e.message)}</div>`; return; }
+  $("#deadlineReopen").style.display = nextOpenRound() ? "inline-block" : "none";
   const sel=$("#roundSel");
   if(!sel.dataset.init){ fillRoundSelect(sel); sel.dataset.init="1"; sel.onchange=()=>paintBet(sel.value); }
   paintBet(sel.value || sel.options[0]?.value);
@@ -649,7 +711,12 @@ async function refreshData(){
 
 /* ───────────── boot ───────────── */
 refreshWhoami();
-loadMatches().catch(()=>{});
+loadMatches().then(()=>{
+  if(!sessionStorage.getItem("deadlineSeen") && nextOpenRound()){
+    sessionStorage.setItem("deadlineSeen","1");
+    openDeadline();
+  }
+}).catch(()=>{});
 renderStandings();
 </script>
 </body>

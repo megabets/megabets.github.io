@@ -58,10 +58,25 @@ create table messages (
   id uuid primary key default gen_random_uuid(),
   player_id uuid references players(id) on delete cascade,
   nickname text not null,
-  text text not null,
+  text text not null check (char_length(text) <= 420),  -- mirror the UI cap
   created_at timestamptz default now()
 );
 create index messages_created_idx on messages (created_at);
+
+-- Retention: keep only the newest 500 messages so the table can't grow unbounded
+-- (caps storage even against an insert flood). Runs once per insert statement.
+create or replace function trim_messages() returns trigger
+language plpgsql as $$
+begin
+  delete from messages where id in (
+    select id from messages order by created_at desc offset 500
+  );
+  return null;
+end;
+$$;
+create trigger trim_messages_after_insert
+  after insert on messages
+  for each statement execute function trim_messages();
 
 -- ── Row Level Security ───────────────────────────────────
 alter table players enable row level security;
@@ -164,3 +179,21 @@ create policy "claim pin"        on players     for update using (pin_hash is nu
 --   create policy "read messages"   on messages for select using (true);
 --   create policy "insert messages" on messages for insert with check (true);
 --   create policy "delete messages" on messages for delete using (true);
+
+-- ── Migration: add the 420-char cap + 500-message retention ─
+-- If you already created `messages` (without these), run THIS once in the SQL Editor.
+-- The length check fails if any existing row is >420 chars; trim those first if so.
+--   alter table messages add constraint messages_text_len check (char_length(text) <= 420);
+--   create or replace function trim_messages() returns trigger
+--   language plpgsql as $$
+--   begin
+--     delete from messages where id in (
+--       select id from messages order by created_at desc offset 500
+--     );
+--     return null;
+--   end;
+--   $$;
+--   drop trigger if exists trim_messages_after_insert on messages;
+--   create trigger trim_messages_after_insert
+--     after insert on messages
+--     for each statement execute function trim_messages();

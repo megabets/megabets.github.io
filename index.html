@@ -66,6 +66,7 @@
   .rulesmenu{position:absolute; left:0; top:calc(100% + 8px); background:var(--panel); border:1px solid var(--line);
     border-radius:10px; padding:8px; min-width:230px; box-shadow:0 12px 30px rgba(0,0,0,.4); z-index:20; display:none}
   .rules.open .rulesmenu{display:block}
+  .rules-hint{font-family:"Spline Sans Mono",monospace; font-size:12.5px; color:var(--muted); margin-left:10px}
   .ruleln{display:flex; align-items:center; justify-content:space-between; gap:24px; padding:7px 9px;
     border-radius:7px; font-size:13.5px; color:var(--ink)}
   .ruleln + .ruleln{margin-top:2px}
@@ -197,6 +198,7 @@
       <div class="ruleln"><span>Wrong</span><b class="pts p0">0 points</b></div>
     </div>
   </div>
+  <span class="rules-hint">any questions? ask in the chat</span>
 
   <nav class="tabs">
     <button data-tab="bet">Bet</button>
@@ -243,7 +245,7 @@
       <p class="sub">Talk smack with the league. Be nice-ish.</p>
       <div id="chatLog"><div class="loading">Loading…</div></div>
       <div class="chatbar">
-        <input type="text" id="chatInput" maxlength="500" placeholder="Message the league…" autocomplete="off" />
+        <input type="text" id="chatInput" maxlength="420" placeholder="Message the league…" autocomplete="off" />
         <button class="btn" id="chatSend">Send</button>
       </div>
       <div class="msg" id="chatMsg"></div>
@@ -337,9 +339,11 @@ let MATCHES = [];   // all matches
 let MY_PREDS = {};  // match_id -> {pred_home,pred_away}
 const ADMIN_NICK = "trololoic"; // organizer who may edit the hidden "Paid" column
 let showPaid = false; // revealed for this session by tapping the footer 5×
-let CHAT = [];           // loaded chat messages, ascending by created_at
-let chatTimer = null;    // 3s poll interval, runs only while the Chat tab is open
+let CHAT = [];            // loaded chat messages, ascending by created_at
+let chatTimer = null;     // 3s poll interval, runs only while the Chat tab is open
 let chatRendered = false; // has the log been painted at least once this session?
+let chatSince = null;     // created_at of the newest message we hold (for incremental polls)
+const CHAT_MAX = 420;     // max characters per message (also enforced by a DB check)
 
 /* ───────────── helpers ───────────── */
 const $ = s => document.querySelector(s);
@@ -788,20 +792,36 @@ function renderChat(msgs){
   if(isAdmin) box.querySelectorAll(".del").forEach(b=> b.onclick=()=>deleteChat(b.dataset.id));
 }
 
+// Full (re)load — fetches the latest 200 messages. Used on tab open and pull-to-refresh
+// so deletions and retention trimming are picked up. Sets the incremental cursor.
 async function loadChat(){
   let rows;
-  try{ rows = await rest("messages?select=*&order=created_at.asc&limit=200"); }
-  catch(e){ if(!CHAT.length) $("#chatLog").innerHTML = `<div class="empty">Couldn't load: ${esc(e.message)}</div>`; return; }
-  rows = rows || [];
-  const newest = rows.length ? rows[rows.length-1].id : null;
-  const current = CHAT.length ? CHAT[CHAT.length-1].id : null;
-  if(newest !== current || rows.length !== CHAT.length){ // skip re-render when nothing changed (no scroll jank)
-    const box = $("#chatLog");
-    const atBottom = !CHAT.length || box.scrollHeight - box.scrollTop - box.clientHeight < 60;
-    CHAT = rows;
-    renderChat(rows);
-    if(atBottom) box.scrollTop = box.scrollHeight;
-  }
+  try{ rows = await rest("messages?select=*&order=created_at.desc&limit=200"); }
+  catch(e){ if(!chatRendered) $("#chatLog").innerHTML = `<div class="empty">Couldn't load: ${esc(e.message)}</div>`; return; }
+  rows = (rows || []).reverse(); // newest-200 came back desc → flip to ascending
+  CHAT = rows;
+  chatSince = rows.length ? rows[rows.length-1].created_at : null;
+  const box = $("#chatLog");
+  renderChat(rows);
+  chatRendered = true;
+  box.scrollTop = box.scrollHeight;
+}
+
+// Incremental poll — fetches ONLY messages newer than what we hold, so an idle poll
+// returns an empty array (near-zero egress). Appends and re-renders only when new.
+async function pollChat(){
+  if(chatSince == null) return loadChat(); // nothing loaded yet this session
+  let rows;
+  try{ rows = await rest(`messages?select=*&created_at=gt.${encodeURIComponent(chatSince)}&order=created_at.asc`); }
+  catch(e){ return; }
+  if(!rows || !rows.length) return;
+  const box = $("#chatLog");
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+  CHAT = CHAT.concat(rows);
+  if(CHAT.length > 300) CHAT = CHAT.slice(-300); // bound in-memory growth over long sessions
+  chatSince = rows[rows.length-1].created_at;
+  renderChat(CHAT);
+  if(atBottom) box.scrollTop = box.scrollHeight;
 }
 
 async function sendChat(){
@@ -810,13 +830,13 @@ async function sendChat(){
   if(!me){ openLogin(); return; }
   const text = input.value.trim();
   if(!text) return;
-  if(text.length > 500){ msg.className="msg err"; msg.textContent="Too long (500 characters max)."; return; }
+  if(text.length > CHAT_MAX){ msg.className="msg err"; msg.textContent=`Too long (${CHAT_MAX} characters max).`; return; }
   $("#chatSend").disabled = true;
   try{
     await rest("messages",{method:"POST", prefer:"return=minimal",
       body:JSON.stringify({player_id:me.id, nickname:me.nickname, text})});
     input.value = "";
-    await loadChat();
+    await pollChat();
     const box = $("#chatLog"); box.scrollTop = box.scrollHeight;
   }catch(e){ msg.className="msg err"; msg.textContent="Couldn't send: "+e.message; }
   finally{ $("#chatSend").disabled = false; input.focus(); }
@@ -831,7 +851,7 @@ async function deleteChat(id){
   }catch(e){ const msg=$("#chatMsg"); msg.className="msg err"; msg.textContent="Couldn't delete: "+e.message; }
 }
 
-function startChatPoll(){ if(!chatTimer) chatTimer = setInterval(loadChat, 3000); }
+function startChatPoll(){ if(!chatTimer) chatTimer = setInterval(pollChat, 3000); }
 function stopChatPoll(){ if(chatTimer){ clearInterval(chatTimer); chatTimer = null; } }
 
 $("#chatSend").onclick = sendChat;

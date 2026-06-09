@@ -90,6 +90,16 @@
     width:100%; background:var(--bg); border:1px solid var(--line); color:var(--ink);
     padding:12px 13px; border-radius:10px; font-family:inherit; font-size:15px}
   input:focus,select:focus{outline:none; border-color:var(--accent)}
+  .suggest-wrap{position:relative}
+  .suggest{position:absolute; left:0; right:0; top:calc(100% + 4px); z-index:5;
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    max-height:200px; overflow-y:auto; list-style:none; margin:0; padding:4px;
+    box-shadow:0 12px 28px rgba(5,8,12,.55)}
+  .suggest[hidden]{display:none}
+  .suggest li{padding:9px 12px; border-radius:7px; cursor:pointer; color:var(--ink);
+    font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .suggest li:hover,.suggest li.active{background:var(--panel2)}
+  .suggest li b{color:var(--accent); font-weight:600}
   .btn{background:var(--accent); color:#04210f; border:0; padding:12px 18px; border-radius:10px;
     font-family:inherit; font-weight:700; font-size:15px; cursor:pointer; transition:.15s}
   .btn:hover{filter:brightness(1.08)} .btn:active{transform:translateY(1px)}
@@ -217,7 +227,10 @@
     <h2>Pick your nickname</h2>
     <p class="sub">One nickname per player, locked with a PIN. It's stored on this device so you stay logged in.</p>
     <label for="nick">Nickname</label>
-    <input type="text" id="nick" maxlength="20" placeholder="e.g. ElTri_Nostradamus" autocomplete="off" />
+    <div class="suggest-wrap">
+      <input type="text" id="nick" maxlength="20" placeholder="e.g. ElTri_Nostradamus" autocomplete="off" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="nickSuggest" />
+      <ul class="suggest" id="nickSuggest" role="listbox" hidden></ul>
+    </div>
     <label for="pin" style="margin-top:14px">PIN</label>
     <input type="password" id="pin" inputmode="numeric" maxlength="6" placeholder="4–6 digits" autocomplete="off" />
     <div style="margin-top:14px">
@@ -286,6 +299,7 @@ const rest = (path, opts={}) => fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
 /* ───────────── state ───────────── */
 let me = JSON.parse(localStorage.getItem("wc_player") || "null"); // {id,nickname}
 let pendingJoin = null; // first-time PIN set awaiting confirmation
+let ALL_NICKS = null;   // cached nickname list for login suggestions (lazy-loaded)
 let MATCHES = [];   // all matches
 let MY_PREDS = {};  // match_id -> {pred_home,pred_away}
 const ADMIN_NICK = "trololoic"; // organizer who may edit the hidden "Paid" column
@@ -363,12 +377,17 @@ function refreshWhoami(){
     $("#userMenu").classList.remove("open");
   }
 }
-function openLogin(){
+async function openLogin(){
   $("#loginModal").classList.add("open");
   $("#joinMsg").className="msg"; $("#joinMsg").textContent="";
   setTimeout(()=>$("#nick").focus(), 50);
+  // lazily load existing nicknames once, for tap-to-fill suggestions (best-effort)
+  if(!ALL_NICKS){
+    try{ ALL_NICKS = (await rest("players?select=nickname"))?.map(p=>p.nickname).filter(Boolean) || []; }
+    catch(e){ ALL_NICKS = []; }
+  }
 }
-function closeLogin(){ $("#loginModal").classList.remove("open"); }
+function closeLogin(){ $("#loginModal").classList.remove("open"); hideNickSuggest(); }
 $("#loginBtn").onclick = openLogin;
 $("#loginClose").onclick = closeLogin;
 $("#loginModal").onclick = e=>{ if(e.target===$("#loginModal")) closeLogin(); };
@@ -450,6 +469,49 @@ function submitOnEnter(inputIds, btnId){
     if(e.key === "Enter"){ e.preventDefault(); $("#"+btnId).click(); }
   }));
 }
+// nickname tap-to-fill suggestions (prefix match against existing players)
+const nickInput = $("#nick"), nickSuggest = $("#nickSuggest");
+let nickActive = -1; // index of highlighted suggestion, -1 = none
+function hideNickSuggest(){
+  nickSuggest.hidden = true; nickSuggest.innerHTML = ""; nickActive = -1;
+  nickInput.setAttribute("aria-expanded","false");
+}
+function fillNick(name){ nickInput.value = name; hideNickSuggest(); $("#pin").focus(); }
+function setNickActive(i){
+  const items = nickSuggest.children; if(!items.length) return;
+  nickActive = (i + items.length) % items.length;
+  [...items].forEach((li,k)=> li.classList.toggle("active", k===nickActive));
+  items[nickActive].scrollIntoView({block:"nearest"});
+}
+function renderNickSuggest(){
+  const q = nickInput.value.trim().toLowerCase();
+  if(!q || !ALL_NICKS || !ALL_NICKS.length){ hideNickSuggest(); return; }
+  const matches = ALL_NICKS
+    .filter(n => n.toLowerCase().startsWith(q) && n.toLowerCase() !== q)
+    .slice(0, 6);
+  if(!matches.length){ hideNickSuggest(); return; }
+  nickSuggest.innerHTML = matches.map(n =>
+    `<li role="option"><b>${esc(n.slice(0,q.length))}</b>${esc(n.slice(q.length))}</li>`
+  ).join("");
+  [...nickSuggest.children].forEach((li,i)=>{
+    li.dataset.name = matches[i];
+    li.onmousedown = e=>{ e.preventDefault(); fillNick(matches[i]); }; // mousedown beats blur
+  });
+  nickActive = -1; nickSuggest.hidden = false;
+  nickInput.setAttribute("aria-expanded","true");
+}
+nickInput.addEventListener("input", renderNickSuggest);
+nickInput.addEventListener("blur", ()=> setTimeout(hideNickSuggest, 150));
+nickInput.addEventListener("keydown", e=>{           // registered before submitOnEnter
+  if(nickSuggest.hidden) return;
+  if(e.key === "ArrowDown"){ e.preventDefault(); setNickActive(nickActive+1); }
+  else if(e.key === "ArrowUp"){ e.preventDefault(); setNickActive(nickActive-1); }
+  else if(e.key === "Enter" && nickActive >= 0){
+    e.preventDefault(); e.stopImmediatePropagation(); // fill instead of submit
+    fillNick(nickSuggest.children[nickActive].dataset.name);
+  }
+  else if(e.key === "Escape"){ hideNickSuggest(); }
+});
 submitOnEnter(["nick","pin"], "joinBtn");                  // Login modal
 submitOnEnter(["inviteCode","pinConfirm"], "confirmBtn");  // Confirm PIN modal
 // user chip dropdown
@@ -521,7 +583,7 @@ $("#switchBtn").onclick = ()=>{
   me=null; localStorage.removeItem("wc_player");
   $("#userMenu").classList.remove("open");
   refreshWhoami();
-  $("#nick").value=""; $("#pin").value="";
+  $("#nick").value=""; $("#pin").value=""; hideNickSuggest();
   // refresh whichever view is showing
   if($("#view-bet").classList.contains("active")) renderBet();
   if($("#view-standings").classList.contains("active")) renderStandings();

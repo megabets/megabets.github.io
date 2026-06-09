@@ -88,15 +88,22 @@
   .sub{color:var(--muted); font-size:13.5px; margin:0 0 16px}
   label{display:block; font-size:12px; color:var(--muted); margin-bottom:6px; font-weight:600;
     text-transform:uppercase; letter-spacing:.05em}
-  input[type=text],input[type=password],select{
+  input[type=text],input[type=password],select,textarea{
     width:100%; background:var(--bg); border:1px solid var(--line); color:var(--ink);
     padding:12px 13px; border-radius:10px; font-family:inherit; font-size:15px}
-  input:focus,select:focus{outline:none; border-color:var(--accent)}
+  input:focus,select:focus,textarea:focus{outline:none; border-color:var(--accent)}
+  .notice-item{display:flex; align-items:flex-start; gap:8px; justify-content:space-between;
+    background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:9px 11px; margin-top:8px}
+  .notice-item .ntxt{font-size:13.5px; line-height:1.4; word-break:break-word; white-space:pre-wrap}
+  .notice-item .ndel{background:transparent; border:0; color:var(--muted); cursor:pointer;
+    font-size:13px; line-height:1; padding:2px 4px; flex:none}
+  .notice-item .ndel:hover{color:var(--accent2)}
   .suggest-wrap{position:relative}
   .suggest{position:absolute; left:0; right:0; top:calc(100% + 4px); z-index:5;
     background:var(--panel); border:1px solid var(--line); border-radius:10px;
     max-height:200px; overflow-y:auto; list-style:none; margin:0; padding:4px;
     box-shadow:0 12px 28px rgba(5,8,12,.55)}
+  .suggest.up{top:auto; bottom:calc(100% + 4px); max-height:300px}  /* open upward (chat bar sits at the bottom) */
   .suggest[hidden]{display:none}
   .suggest li{padding:9px 12px; border-radius:7px; cursor:pointer; color:var(--ink);
     font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
@@ -158,6 +165,9 @@
   .cmsg .del{background:transparent; border:0; color:var(--muted); cursor:pointer; font-size:13px;
     line-height:1; padding:0 2px}
   .cmsg .del:hover{color:var(--accent2)}
+  .cmsg .wh{background:transparent; border:0; color:var(--muted); cursor:pointer; font-size:13px;
+    line-height:1; padding:0 2px}
+  .cmsg .wh:hover{color:var(--accent)}
   .chatbar{display:flex; gap:8px; align-items:center}
   .chatbar input{flex:1}
   .chatbar .btn{padding:12px 16px; white-space:nowrap}
@@ -193,9 +203,9 @@
       </div>
     </div>
   </header>
-  <p class="tagline">private betting league for the world cup 2026</p>
+  <p class="tagline">brace yourselves for the World Cup 2026</p>
   <button class="rulesbtn" id="rulesBtn">Rules</button>
-  <span class="rules-hint">any questions? ask in the chat</span>
+  <span class="rules-hint">any questions? ask in the chat or join our <a href="https://chat.whatsapp.com/LboBJmrqnOEEp36HurjfuW" target="_blank" rel="noopener" style="text-decoration: underline; color: inherit;">whatsapp</a></span>
 
   <nav class="tabs">
     <button data-tab="bet">Bet</button>
@@ -242,7 +252,10 @@
       <p class="sub">Talk smack with the league. Be nice-ish.</p>
       <div id="chatLog"><div class="loading">Loading…</div></div>
       <div class="chatbar">
-        <input type="text" id="chatInput" maxlength="420" placeholder="Message the league…" autocomplete="off" />
+        <div class="suggest-wrap" style="flex:1">
+          <input type="text" id="chatInput" maxlength="420" placeholder="Message the league…" autocomplete="off" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="alertSuggest" />
+          <ul class="suggest up" id="alertSuggest" role="listbox" hidden></ul>
+        </div>
         <button class="btn" id="chatSend">Send</button>
       </div>
       <div class="msg" id="chatMsg"></div>
@@ -299,6 +312,34 @@
     <p class="sub" id="deadlineSub"></p>
     <div id="deadlineClock" style="text-align:center;font-size:44px;font-weight:700;color:var(--accent);font-family:'Spline Sans Mono',monospace;margin:8px 0">--:--:--</div>
     <button class="btn" id="deadlineOk" style="width:100%">Got it</button>
+  </div>
+</div>
+
+<!-- NOTICE POPUP MODAL (message addressed to the current user) -->
+<div class="backdrop" id="noticeModal">
+  <div class="card modal">
+    <button class="modal-close" id="noticeClose" aria-label="Close">×</button>
+    <h2 id="noticeTitle">📣 A message for you</h2>
+    <p class="sub" id="noticeBody" style="white-space:pre-wrap"></p>
+    <button class="btn" id="noticeOk" style="width:100%">OK</button>
+  </div>
+</div>
+
+<!-- ADMIN: compose / manage popups (per nickname, or all of them) -->
+<div class="backdrop" id="adminNoticeModal">
+  <div class="card modal">
+    <button class="modal-close" id="adminNoticeClose" aria-label="Close">×</button>
+    <h2 id="adminNoticeHead">📣 Send a popup</h2>
+    <div id="adminNoticeCompose">
+      <p class="sub">This message pops up on <b id="adminNoticeNick" style="color:var(--accent)"></b>'s screen every time they open the app, until you delete it.</p>
+      <label for="adminNoticeText">Message</label>
+      <textarea id="adminNoticeText" maxlength="420" rows="3" placeholder="e.g. Hey! Join our group: https://…" style="width:100%;resize:vertical"></textarea>
+      <div style="margin-top:12px">
+        <button class="btn" id="adminNoticeSend" style="width:100%">Send popup</button>
+      </div>
+      <div class="msg" id="adminNoticeMsg"></div>
+    </div>
+    <div id="adminNoticeList"></div>
   </div>
 </div>
 
@@ -430,21 +471,27 @@ function refreshWhoami(){
     $("#userChip").style.display = "flex";
     $("#userName").textContent = me.nickname;
     $("#nick").value = me.nickname;
+    if(isAdmin()) $("#chatInput").placeholder = "Message the league…  (/alert <nick> <msg>, /alerts to manage)";
   } else {
     $("#loginBtn").style.display = "inline-block";
     $("#userChip").style.display = "none";
     $("#userMenu").classList.remove("open");
   }
 }
-async function openLogin(){
-  $("#loginModal").classList.add("open");
-  $("#joinMsg").className="msg"; $("#joinMsg").textContent="";
-  setTimeout(()=>$("#nick").focus(), 50);
-  // lazily load existing nicknames once, for tap-to-fill suggestions (best-effort)
+// Lazily load the player nickname list once (best-effort). Used by login suggestions
+// and the admin /alert username dropdown.
+async function ensureNicks(){
   if(!ALL_NICKS){
     try{ ALL_NICKS = (await rest("players?select=nickname"))?.map(p=>p.nickname).filter(Boolean) || []; }
     catch(e){ ALL_NICKS = []; }
   }
+  return ALL_NICKS;
+}
+async function openLogin(){
+  $("#loginModal").classList.add("open");
+  $("#joinMsg").className="msg"; $("#joinMsg").textContent="";
+  setTimeout(()=>$("#nick").focus(), 50);
+  await ensureNicks();
 }
 function closeLogin(){ $("#loginModal").classList.remove("open"); hideNickSuggest(); }
 $("#loginBtn").onclick = openLogin;
@@ -487,6 +534,102 @@ $("#deadlineOk").onclick = closeDeadline;
 $("#deadlineClose").onclick = closeDeadline;
 $("#deadlineModal").onclick = e=>{ if(e.target===$("#deadlineModal")) closeDeadline(); };
 $("#deadlineReopen").onclick = openDeadline;
+
+/* ───────────── notices (admin → single-user popup) ───────────── */
+// On boot, show every notice addressed to the current user, one at a time, BEFORE the
+// deadline countdown. Notices are never marked "seen": they recur each open until the
+// admin deletes them (chosen behaviour). bootDeadline() runs once the queue is drained.
+let noticeQueue = [];
+function bootDeadline(){
+  if(!sessionStorage.getItem("deadlineSeen") && nextOpenRound()){
+    sessionStorage.setItem("deadlineSeen","1");
+    openDeadline();
+  }
+}
+async function checkNotices(){
+  if(!me){ bootDeadline(); return; }
+  try{ noticeQueue = await rest(`notices?select=*&to_nick=eq.${encodeURIComponent(me.nickname.toLowerCase())}&order=created_at.asc`) || []; }
+  catch(e){ noticeQueue = []; }
+  showNextNotice();
+}
+function showNextNotice(){
+  const n = noticeQueue.shift();
+  if(!n){ bootDeadline(); return; }   // queue drained → hand off to the countdown
+  $("#noticeBody").textContent = n.body;
+  $("#noticeModal").classList.add("open");
+}
+function closeNotice(){
+  $("#noticeModal").classList.remove("open");
+  showNextNotice();   // advance to the next queued notice (or the deadline)
+}
+$("#noticeOk").onclick = closeNotice;
+$("#noticeClose").onclick = closeNotice;
+$("#noticeModal").onclick = e=>{ if(e.target===$("#noticeModal")) closeNotice(); };
+
+// Admin compose / manage panel. With a nickname → compose + that user's popups.
+// Without one (adminNoticeNick=null) → "manage all" mode: every active popup, delete-only.
+let adminNoticeNick = null;
+function isAdmin(){ return !!(me && me.nickname.toLowerCase()===ADMIN_NICK); }
+async function openAdminNotice(nick){
+  if(!isAdmin()) return;
+  adminNoticeNick = nick || null;
+  const compose = adminNoticeNick != null;
+  $("#adminNoticeCompose").style.display = compose ? "" : "none";
+  $("#adminNoticeHead").textContent = compose ? "📣 Send a popup" : "📣 Active popups";
+  if(compose){
+    $("#adminNoticeNick").textContent = adminNoticeNick;
+    $("#adminNoticeText").value = "";
+    const msg = $("#adminNoticeMsg"); msg.className="msg"; msg.textContent="";
+  }
+  $("#adminNoticeModal").classList.add("open");
+  if(compose) $("#adminNoticeText").focus();
+  await renderAdminNoticeList();
+}
+function closeAdminNotice(){ $("#adminNoticeModal").classList.remove("open"); }
+$("#adminNoticeClose").onclick = closeAdminNotice;
+$("#adminNoticeModal").onclick = e=>{ if(e.target===$("#adminNoticeModal")) closeAdminNotice(); };
+
+async function renderAdminNoticeList(){
+  const wrap = $("#adminNoticeList");
+  const all = adminNoticeNick == null;
+  const path = all
+    ? `notices?select=*&order=created_at.desc`
+    : `notices?select=*&to_nick=eq.${encodeURIComponent(adminNoticeNick.toLowerCase())}&order=created_at.desc`;
+  let rows;
+  try{ rows = await rest(path) || []; }
+  catch(e){ wrap.innerHTML=""; return; }
+  if(!rows.length){
+    wrap.innerHTML = `<p class="hint" style="margin-top:12px">${all ? "No active popups." : "No active popups for this user."}</p>`;
+    return;
+  }
+  wrap.innerHTML = `<p class="hint" style="margin-top:14px;margin-bottom:0">Active popups (delete to stop them):</p>` +
+    rows.map(r=>`<div class="notice-item"><span class="ntxt">${all ? `<b style="color:var(--accent)">→ ${esc(r.to_nick)}</b><br>` : ""}${esc(r.body)}</span><button class="ndel" data-id="${r.id}" title="Delete" aria-label="Delete">✕</button></div>`).join("");
+  wrap.querySelectorAll(".ndel").forEach(b=> b.onclick=()=>deleteNotice(b.dataset.id));
+}
+async function sendNotice(){
+  if(!isAdmin() || !adminNoticeNick) return;
+  const ta = $("#adminNoticeText"), msg = $("#adminNoticeMsg");
+  const body = ta.value.trim();
+  msg.className="msg";
+  if(!body){ msg.className="msg err"; msg.textContent="Type a message first."; return; }
+  $("#adminNoticeSend").disabled = true;
+  try{
+    await rest("notices",{method:"POST", prefer:"return=minimal",
+      body:JSON.stringify({to_nick:adminNoticeNick.toLowerCase(), body})});
+    ta.value="";
+    msg.className="msg ok"; msg.textContent=`Popup sent to ${adminNoticeNick}.`;
+    await renderAdminNoticeList();
+  }catch(e){ msg.className="msg err"; msg.textContent="Couldn't send: "+e.message; }
+  finally{ $("#adminNoticeSend").disabled = false; }
+}
+async function deleteNotice(id){
+  if(!isAdmin()) return;
+  try{
+    await rest(`notices?id=eq.${id}`, {method:"DELETE", prefer:"return=minimal"});
+    await renderAdminNoticeList();
+  }catch(e){ const msg=$("#adminNoticeMsg"); msg.className="msg err"; msg.textContent="Couldn't delete: "+e.message; }
+}
+$("#adminNoticeSend").onclick = sendNotice;
 
 // confirm-PIN modal (first-time registration)
 function openConfirm(){
@@ -571,6 +714,58 @@ nickInput.addEventListener("keydown", e=>{           // registered before submit
   }
   else if(e.key === "Escape"){ hideNickSuggest(); }
 });
+
+// admin /alert username dropdown — opens above the chat bar; picking a name opens the
+// compose popup pre-targeted to that user. Lists all registered players, filtered as you type.
+const chatInputEl = $("#chatInput"), alertSuggest = $("#alertSuggest");
+let alertActive = -1;
+const ALERT_RE = /^\/alert(?:\s+(\S*))?$/i;   // "/alert", "/alert ", or "/alert <partial>"
+function hideAlertSuggest(){
+  alertSuggest.hidden = true; alertSuggest.innerHTML = ""; alertActive = -1;
+  chatInputEl.setAttribute("aria-expanded","false");
+}
+function pickAlert(name){
+  hideAlertSuggest();
+  chatInputEl.value = "";
+  openAdminNotice(name);
+}
+function setAlertActive(i){
+  const items = alertSuggest.children; if(!items.length) return;
+  alertActive = (i + items.length) % items.length;
+  [...items].forEach((li,k)=> li.classList.toggle("active", k===alertActive));
+  items[alertActive].scrollIntoView({block:"nearest"});
+}
+async function renderAlertSuggest(){
+  if(!isAdmin()){ hideAlertSuggest(); return; }
+  const m = chatInputEl.value.match(ALERT_RE);
+  if(!m){ hideAlertSuggest(); return; }
+  await ensureNicks();
+  const q = (m[1]||"").toLowerCase();
+  const matches = (ALL_NICKS||[]).filter(n => n.toLowerCase().startsWith(q)); // all matches; list scrolls
+  if(!matches.length){ hideAlertSuggest(); return; }
+  alertSuggest.innerHTML = matches.map(n =>
+    `<li role="option"><b>${esc(n.slice(0,q.length))}</b>${esc(n.slice(q.length))}</li>`
+  ).join("");
+  [...alertSuggest.children].forEach((li,i)=>{
+    li.dataset.name = matches[i];
+    li.onmousedown = e=>{ e.preventDefault(); pickAlert(matches[i]); }; // mousedown beats blur
+  });
+  alertActive = -1; alertSuggest.hidden = false;
+  chatInputEl.setAttribute("aria-expanded","true");
+}
+chatInputEl.addEventListener("input", renderAlertSuggest);
+chatInputEl.addEventListener("blur", ()=> setTimeout(hideAlertSuggest, 150));
+chatInputEl.addEventListener("keydown", e=>{          // registered before submitOnEnter(chatInput)
+  if(alertSuggest.hidden) return;
+  if(e.key === "ArrowDown"){ e.preventDefault(); setAlertActive(alertActive+1); }
+  else if(e.key === "ArrowUp"){ e.preventDefault(); setAlertActive(alertActive-1); }
+  else if(e.key === "Enter" && alertActive >= 0){
+    e.preventDefault(); e.stopImmediatePropagation(); // pick instead of send
+    pickAlert(alertSuggest.children[alertActive].dataset.name);
+  }
+  else if(e.key === "Escape"){ hideAlertSuggest(); }
+});
+
 submitOnEnter(["nick","pin"], "joinBtn");                  // Login modal
 submitOnEnter(["inviteCode","pinConfirm"], "confirmBtn");  // Confirm PIN modal
 // user chip dropdown
@@ -803,12 +998,16 @@ function renderChat(msgs){
     const mine = !!(me && m.player_id===me.id);
     const t = new Date(m.created_at).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
     const del = isAdmin ? `<button class="del" data-id="${m.id}" title="Delete" aria-label="Delete">✕</button>` : "";
+    const wh = (isAdmin && !mine) ? `<button class="wh" data-nick="${esc(m.nickname)}" title="Send a popup to this user" aria-label="Send popup">📣</button>` : "";
     return `<div class="cmsg ${mine?'mine':''}">
-      <div class="head"><span class="who">${esc(m.nickname)}</span><span>${t}</span>${del}</div>
+      <div class="head"><span class="who">${esc(m.nickname)}</span><span>${t}</span>${wh}${del}</div>
       <div class="bubble">${esc(m.text)}</div>
     </div>`;
   }).join("");
-  if(isAdmin) box.querySelectorAll(".del").forEach(b=> b.onclick=()=>deleteChat(b.dataset.id));
+  if(isAdmin){
+    box.querySelectorAll(".del").forEach(b=> b.onclick=()=>deleteChat(b.dataset.id));
+    box.querySelectorAll(".wh").forEach(b=> b.onclick=()=>openAdminNotice(b.dataset.nick));
+  }
 }
 
 // Full (re)load — fetches the latest 200 messages. Used on tab open and pull-to-refresh
@@ -849,6 +1048,28 @@ async function sendChat(){
   if(!me){ openLogin(); return; }
   const text = input.value.trim();
   if(!text) return;
+  // Admin-only popup commands (non-admins fall through and post a normal message):
+  //   /alerts            → manage / delete every active popup
+  //   /alert <nick>      → manage / compose popups for one user (even one who never posted)
+  //   /alert <nick> <msg> → send a popup to that user
+  if(isAdmin() && /^\/alerts?(\s|$)/i.test(text)){
+    if(/^\/alerts?\s*$/i.test(text)){ input.value=""; openAdminNotice(null); return; }
+    const am = text.match(/^\/alert\s+(\S+)(?:\s+([\s\S]+))?$/i);
+    if(am){
+      const nick = am[1], body = (am[2]||"").trim();
+      if(!body){ input.value=""; openAdminNotice(nick); return; } // open manage/compose panel
+      if(body.length > CHAT_MAX){ msg.className="msg err"; msg.textContent=`Too long (${CHAT_MAX} characters max).`; return; }
+      $("#chatSend").disabled = true;
+      try{
+        await rest("notices",{method:"POST", prefer:"return=minimal",
+          body:JSON.stringify({to_nick:nick.toLowerCase(), body})});
+        input.value = "";
+        msg.className="msg ok"; msg.textContent=`Popup sent to ${nick}.`;
+      }catch(e){ msg.className="msg err"; msg.textContent="Couldn't send: "+e.message; }
+      finally{ $("#chatSend").disabled = false; input.focus(); }
+      return;
+    }
+  }
   if(text.length > CHAT_MAX){ msg.className="msg err"; msg.textContent=`Too long (${CHAT_MAX} characters max).`; return; }
   $("#chatSend").disabled = true;
   try{
@@ -918,12 +1139,9 @@ async function refreshData(){
 
 /* ───────────── boot ───────────── */
 refreshWhoami();
-loadMatches().then(()=>{
-  if(!sessionStorage.getItem("deadlineSeen") && nextOpenRound()){
-    sessionStorage.setItem("deadlineSeen","1");
-    openDeadline();
-  }
-}).catch(()=>{});
+loadMatches()
+  .then(()=> checkNotices())   // popups first; checkNotices() hands off to bootDeadline()
+  .catch(()=> bootDeadline());
 renderStandings();
 </script>
 </body>

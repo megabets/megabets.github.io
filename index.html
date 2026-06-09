@@ -24,6 +24,8 @@
   }
   .wrap{max-width:880px; margin:0 auto; padding:24px 18px 80px}
   header.top{display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:6px}
+  .brandwrap{display:flex; align-items:center; gap:14px}
+  .brand-logo{height:clamp(64px,13vw,92px); width:auto; display:block; flex:none}
   .brand{display:flex; flex-direction:column; align-items:flex-start; gap:2px}
   .brand h1{font-size:clamp(44px,9vw,68px); font-weight:800; letter-spacing:-.02em; margin:0; line-height:1}
   .brand .yr{font-family:"Spline Sans Mono",monospace; color:var(--accent); font-size:28px; font-weight:600}
@@ -174,9 +176,12 @@
 <div class="ptr" id="ptr"><span class="spin"></span><span class="ptrtxt">Pull to refresh</span></div>
 <div class="wrap">
   <header class="top">
-    <div class="brand">
-      <h1>megabets</h1>
-      <span class="yr">WC2026</span>
+    <div class="brandwrap">
+      <img class="brand-logo" src="mainimgwhite.webp" alt="FIFA World Cup 2026 trophy" />
+      <div class="brand">
+        <h1>megabets</h1>
+        <span class="yr">WC2026</span>
+      </div>
     </div>
     <div class="account">
       <button class="loginbtn" id="loginBtn">Log in</button>
@@ -188,7 +193,7 @@
       </div>
     </div>
   </header>
-  <p class="tagline">private betting league for the world cup 2026 · World Cup 2026</p>
+  <p class="tagline">private betting league for the world cup 2026</p>
   <button class="rulesbtn" id="rulesBtn">Rules</button>
   <span class="rules-hint">any questions? ask in the chat</span>
 

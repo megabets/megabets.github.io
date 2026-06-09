@@ -1,9 +1,9 @@
-# malakabet — World Cup 2026 friends betting league
+# megabets — World Cup 2026 friends betting league
 
 A static web app (GitHub Pages) where friends predict match scores. Data lives in
 Supabase. No build step, no framework — open `index.html` and it runs.
 
-**Live:** https://malakabet.github.io/
+**Live:** https://megabets.github.io/
 
 **Scoring:** exact score = 3 · correct outcome (incl. draw) = 1 · wrong = 0
 **Betting:** organised by round; the whole round locks at its first kickoff.
@@ -71,15 +71,15 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 | `FOOTBALL_TOKEN`       | football-data.org → your account → API token |
 
 ```bash
-gh secret set SUPABASE_URL --repo malakabet/malakabet.github.io --body "https://bocszfurxyyzacgjzmjc.supabase.co"
-gh secret set SUPABASE_SERVICE_KEY --repo malakabet/malakabet.github.io   # paste when prompted
-gh secret set FOOTBALL_TOKEN --repo malakabet/malakabet.github.io          # paste when prompted
+gh secret set SUPABASE_URL --repo megabets/megabets.github.io --body "https://bocszfurxyyzacgjzmjc.supabase.co"
+gh secret set SUPABASE_SERVICE_KEY --repo megabets/megabets.github.io   # paste when prompted
+gh secret set FOOTBALL_TOKEN --repo megabets/megabets.github.io          # paste when prompted
 ```
 
 ### 3. Seed the matches (first time)
 Either trigger the workflow once…
 ```bash
-gh workflow run fetch-scores.yml --repo malakabet/malakabet.github.io
+gh workflow run fetch-scores.yml --repo megabets/megabets.github.io
 ```
 …or run it locally (same script the cron uses):
 ```bash
@@ -95,7 +95,7 @@ so re-running updates rows and scores without creating duplicates.
 
 ### 4. Deploy to GitHub Pages
 Already wired to deploy from branch `main`, folder `/root`. Site is live at
-**https://malakabet.github.io/**. Share that link with your friends.
+**https://megabets.github.io/**. Share that link with your friends.
 (To re-enable from scratch: Repo → **Settings → Pages** → Source: branch `main`, `/root`.)
 
 ---

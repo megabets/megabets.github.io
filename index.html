@@ -54,23 +54,22 @@
     font-size:24px; line-height:1; cursor:pointer; padding:0}
   .modal-close:hover{color:var(--ink)}
   .tagline{font-family:"Spline Sans Mono",monospace; font-size:13px; color:var(--muted); margin:2px 0 0}
-  /* scoring rules dropdown */
-  .rules{position:relative; display:inline-block; margin:10px 0 18px}
+  /* rules */
   .rulesbtn{display:inline-flex; align-items:center; gap:8px; background:var(--panel2); border:1px solid var(--line);
     color:var(--muted); font-family:"Spline Sans Mono",monospace; font-size:12.5px; padding:6px 13px;
-    border-radius:999px; cursor:pointer; transition:.15s}
+    border-radius:999px; cursor:pointer; transition:.15s; margin:10px 0 18px}
   .rulesbtn:hover{color:var(--ink); border-color:var(--accent)}
-  .rulesbtn .caret{font-size:11px; transition:transform .15s}
-  .rules.open .rulesbtn{color:var(--ink); border-color:var(--accent)}
-  .rules.open .rulesbtn .caret{transform:rotate(180deg)}
-  .rulesmenu{position:absolute; left:0; top:calc(100% + 8px); background:var(--panel); border:1px solid var(--line);
-    border-radius:10px; padding:8px; min-width:230px; box-shadow:0 12px 30px rgba(0,0,0,.4); z-index:20; display:none}
-  .rules.open .rulesmenu{display:block}
   .rules-hint{font-family:"Spline Sans Mono",monospace; font-size:12.5px; color:var(--muted); margin-left:10px}
   .ruleln{display:flex; align-items:center; justify-content:space-between; gap:24px; padding:7px 9px;
     border-radius:7px; font-size:13.5px; color:var(--ink)}
   .ruleln + .ruleln{margin-top:2px}
   .ruleln .pts{font-size:13px}
+  .rules-section{font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em;
+    font-weight:700; margin:18px 0 8px}
+  .rules-section:first-of-type{margin-top:4px}
+  .rulelist{margin:0; padding-left:18px; list-style:disc}
+  .rulelist li{font-size:13.5px; color:var(--ink); line-height:1.5}
+  .rulelist li + li{margin-top:9px}
   nav.tabs{display:flex; gap:6px; background:var(--panel); border:1px solid var(--line);
     padding:6px; border-radius:var(--radius); margin-bottom:18px; flex-wrap:wrap}
   nav.tabs button{flex:1; min-width:84px; background:transparent; border:0; color:var(--muted);
@@ -190,14 +189,7 @@
     </div>
   </header>
   <p class="tagline">private betting league for the world cup 2026 · World Cup 2026</p>
-  <div class="rules" id="rules">
-    <button class="rulesbtn" id="rulesBtn">Scoring rules <span class="caret">▾</span></button>
-    <div class="rulesmenu" id="rulesMenu">
-      <div class="ruleln"><span>Exact score</span><b class="pts p3">3 points</b></div>
-      <div class="ruleln"><span>Correct outcome</span><b class="pts p1">1 point</b></div>
-      <div class="ruleln"><span>Wrong</span><b class="pts p0">0 points</b></div>
-    </div>
-  </div>
+  <button class="rulesbtn" id="rulesBtn">Rules</button>
   <span class="rules-hint">any questions? ask in the chat</span>
 
   <nav class="tabs">
@@ -302,6 +294,27 @@
     <p class="sub" id="deadlineSub"></p>
     <div id="deadlineClock" style="text-align:center;font-size:44px;font-weight:700;color:var(--accent);font-family:'Spline Sans Mono',monospace;margin:8px 0">--:--:--</div>
     <button class="btn" id="deadlineOk" style="width:100%">Got it</button>
+  </div>
+</div>
+
+<!-- RULES MODAL -->
+<div class="backdrop" id="rulesModal">
+  <div class="card modal">
+    <button class="modal-close" id="rulesClose" aria-label="Close">×</button>
+    <h2>Rules</h2>
+
+    <div class="rules-section">Scoring rules</div>
+    <div class="ruleln"><span>Exact score</span><b class="pts p3">3 points</b></div>
+    <div class="ruleln"><span>Correct outcome</span><b class="pts p1">1 point</b></div>
+    <div class="ruleln"><span>Wrong</span><b class="pts p0">0 points</b></div>
+
+    <div class="rules-section">Other rules</div>
+    <ul class="rulelist">
+      <li>You need to place your bets before the kickoff of the first match of the upcoming round (the countdown tells you how much time you have). You can update your bets until kickoff.</li>
+      <li>If you don't place a bet before the deadline, you score 0 points for those matches.</li>
+      <li>On the leaderboard, ties are broken by most exact-score hits, then by most correct outcomes.</li>
+      <li>If a match is postponed or cancelled, bets on it carry over to its rescheduled date.</li>
+    </ul>
   </div>
 </div>
 
@@ -558,9 +571,10 @@ submitOnEnter(["inviteCode","pinConfirm"], "confirmBtn");  // Confirm PIN modal
 // user chip dropdown
 $("#userChip").onclick = e=>{ e.stopPropagation(); $("#userMenu").classList.toggle("open"); };
 document.addEventListener("click", ()=> $("#userMenu").classList.remove("open"));
-// scoring rules dropdown
-$("#rulesBtn").onclick = e=>{ e.stopPropagation(); $("#rules").classList.toggle("open"); };
-document.addEventListener("click", ()=> $("#rules").classList.remove("open"));
+// rules modal
+$("#rulesBtn").onclick = ()=> $("#rulesModal").classList.add("open");
+$("#rulesClose").onclick = ()=> $("#rulesModal").classList.remove("open");
+$("#rulesModal").onclick = e=>{ if(e.target===$("#rulesModal")) $("#rulesModal").classList.remove("open"); };
 // secret 5-tap footer gesture reveals the hidden "Paid" column (session only)
 (function(){
   let taps = 0, last = 0;

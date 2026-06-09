@@ -53,9 +53,6 @@
   .modal-close{position:absolute; top:12px; right:14px; background:transparent; border:0; color:var(--muted);
     font-size:24px; line-height:1; cursor:pointer; padding:0}
   .modal-close:hover{color:var(--ink)}
-/* easter-egg secret modal */
-#secretStage{display:flex; justify-content:center; padding:20px 0}
-#secretImg{display:block; width:100%; max-width:380px; margin:10px auto; border-radius:12px}
   .tagline{font-family:"Spline Sans Mono",monospace; font-size:13px; color:var(--muted); margin:2px 0 0}
   /* scoring rules dropdown */
   .rules{position:relative; display:inline-block; margin:10px 0 18px}
@@ -150,7 +147,7 @@
 <div class="wrap">
   <header class="top">
     <div class="brand">
-      <h1 id="brandTitle">malakabet</h1>
+      <h1>malakabet</h1>
       <span class="yr">WC2026</span>
     </div>
     <div class="account">
@@ -246,25 +243,6 @@
   </div>
 </div>
 
-<!-- SECRET / EASTER-EGG MODAL -->
-<div class="backdrop" id="secretModal">
-  <div class="card modal">
-    <button class="modal-close" id="secretClose" aria-label="Close">×</button>
-    <div id="secretStage">
-      <button class="btn" id="secretBtn">secret</button>
-    </div>
-    <div id="secretReveal" style="display:none">
-      <h2 style="margin-bottom:6px">Whose hips are these?</h2>
-      <p class="sub">1 point for a right guess. Hips don't lie.</p>
-      <img id="secretImg" src="shakira%20hips.png" alt="mystery hips" />
-      <input type="text" id="secretGuess" maxlength="30" placeholder="Your guess…" autocomplete="off" />
-      <div style="margin-top:12px"><button class="btn" id="secretSubmit">Guess</button></div>
-      <div class="msg" id="secretMsg"></div>
-      <p class="hint" id="secretGuesses"></p>
-    </div>
-  </div>
-</div>
-
 <script type="module">
 /* ───────────── CONFIG ───────────── */
 const SUPABASE_URL  = "https://bocszfurxyyzacgjzmjc.supabase.co";
@@ -296,8 +274,6 @@ let me = JSON.parse(localStorage.getItem("wc_player") || "null"); // {id,nicknam
 let pendingJoin = null; // first-time PIN set awaiting confirmation
 let MATCHES = [];   // all matches
 let MY_PREDS = {};  // match_id -> {pred_home,pred_away}
-const BONUS_PTS = { shakira: 1 };                                  // bonus kind -> leaderboard points
-const SECRET_STAGES = ["secret", "you're curious?", "keep going", "nearly there"]; // evolving secret button
 
 /* ───────────── helpers ───────────── */
 const $ = s => document.querySelector(s);
@@ -413,7 +389,6 @@ function submitOnEnter(inputIds, btnId){
 }
 submitOnEnter(["nick","pin"], "joinBtn");                  // Login modal
 submitOnEnter(["inviteCode","pinConfirm"], "confirmBtn");  // Confirm PIN modal
-submitOnEnter(["secretGuess"], "secretSubmit");            // Secret modal
 // user chip dropdown
 $("#userChip").onclick = e=>{ e.stopPropagation(); $("#userMenu").classList.toggle("open"); };
 document.addEventListener("click", ()=> $("#userMenu").classList.remove("open"));
@@ -563,92 +538,13 @@ $("#saveBets").onclick = async ()=>{
   }catch(e){ msg.className="msg err"; msg.textContent="Error: "+e.message; }
 };
 
-/* ───────────── secret / easter egg ───────────── */
-let secretStage = 0;
-const eggKey = () => me ? "wc_shakira_"+me.id : null;
-const eggState = () => JSON.parse(localStorage.getItem(eggKey()) || '{"guesses":0,"solved":false}');
-const saveEgg = s => localStorage.setItem(eggKey(), JSON.stringify(s));
-
-function openSecret(){
-  secretStage = 0;
-  $("#secretBtn").textContent = SECRET_STAGES[0];
-  $("#secretStage").style.display = "flex";
-  $("#secretReveal").style.display = "none";
-  $("#secretMsg").className = "msg"; $("#secretMsg").textContent = "";
-  $("#secretModal").classList.add("open");
-}
-function closeSecret(){ $("#secretModal").classList.remove("open"); }
-function revealSecret(){
-  $("#secretStage").style.display = "none";
-  $("#secretReveal").style.display = "block";
-  const submit = $("#secretSubmit"), guess = $("#secretGuess"), msg = $("#secretMsg");
-  if(!me){
-    guess.disabled = submit.disabled = true;
-    $("#secretGuesses").textContent = "";
-    msg.className = "msg"; msg.innerHTML = "Log in to play for a point.";
-    return;
-  }
-  const st = eggState();
-  if(st.solved){
-    guess.disabled = submit.disabled = true;
-    msg.className = "msg ok"; msg.textContent = "Already solved — you bagged the point 🎉";
-    $("#secretGuesses").textContent = "";
-  } else if(st.guesses >= 3){
-    guess.disabled = submit.disabled = true;
-    msg.className = "msg err"; msg.textContent = "Out of guesses — it was Shakira 💃";
-    $("#secretGuesses").textContent = "";
-  } else {
-    guess.disabled = submit.disabled = false;
-    guess.value = ""; msg.className = "msg"; msg.textContent = "";
-    $("#secretGuesses").textContent = `Guesses left: ${3 - st.guesses}`;
-    setTimeout(()=>guess.focus(), 50);
-  }
-}
-$("#brandTitle").onclick = openSecret;
-$("#secretClose").onclick = closeSecret;
-$("#secretModal").onclick = e=>{ if(e.target===$("#secretModal")) closeSecret(); };
-$("#secretBtn").onclick = ()=>{
-  secretStage++;
-  if(secretStage < SECRET_STAGES.length){ $("#secretBtn").textContent = SECRET_STAGES[secretStage]; }
-  else revealSecret();
-};
-$("#secretSubmit").onclick = async ()=>{
-  if(!me) return;
-  const st = eggState();
-  if(st.solved || st.guesses >= 3) return;
-  const ok = $("#secretGuess").value.trim().toLowerCase() === "shakira";
-  const msg = $("#secretMsg");
-  if(ok){
-    try{
-      await rest("bonuses",{method:"POST", prefer:"resolution=ignore-duplicates,return=minimal",
-        body: JSON.stringify({player_id: me.id, kind:"shakira"})});
-    }catch(e){ msg.className="msg err"; msg.textContent="Couldn't save: "+e.message; return; }
-    st.solved = true; saveEgg(st);
-    $("#secretGuess").disabled = $("#secretSubmit").disabled = true;
-    $("#secretGuesses").textContent = "";
-    msg.className="msg ok"; msg.textContent="Correct! +1 point 🎉";
-    if($("#view-standings").classList.contains("active")) renderStandings();
-  } else {
-    st.guesses++; saveEgg(st);
-    if(st.guesses >= 3){
-      $("#secretGuess").disabled = $("#secretSubmit").disabled = true;
-      $("#secretGuesses").textContent = "";
-      msg.className="msg err"; msg.textContent="Out of guesses — it was Shakira 💃";
-    } else {
-      $("#secretGuesses").textContent = `Guesses left: ${3 - st.guesses}`;
-      msg.className="msg err"; msg.textContent="Nope, try again.";
-    }
-  }
-};
-
 /* ───────────── standings ───────────── */
 async function renderStandings(){
   const box=$("#standings"); box.innerHTML=`<div class="loading">Loading…</div>`;
   try{
-    const [players, preds, bonuses] = await Promise.all([
+    const [players, preds] = await Promise.all([
       rest("players?select=id,nickname"),
-      rest("predictions?select=player_id,match_id,pred_home,pred_away"),
-      rest("bonuses?select=player_id,kind")
+      rest("predictions?select=player_id,match_id,pred_home,pred_away")
     ]);
     if(!MATCHES.length) await loadMatches();
     const mById={}; MATCHES.forEach(m=>mById[m.id]=m);
@@ -659,7 +555,6 @@ async function renderStandings(){
       const t=tally[pr.player_id]; if(!t) return;
       t.pts+=pt; t.played++; if(pt===3) t.exact++;
     });
-    bonuses.forEach(b=>{ const t=tally[b.player_id]; if(t) t.pts += (BONUS_PTS[b.kind]||0); });
     const rows=Object.entries(tally).map(([id,t])=>({id,...t}))
       .sort((a,b)=> b.pts-a.pts || b.exact-a.exact || a.nick.localeCompare(b.nick));
     if(!rows.length){ box.innerHTML=`<div class="empty">No players yet.</div>`; return; }

@@ -180,7 +180,7 @@
     <div class="card">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:10px">
         <h2>Place your bets</h2>
-        <button class="btn sec" id="fillRandom" style="padding:8px 12px; font-size:13px; display:none">🎲 Fill randomly</button>
+        <button class="btn sec" id="fillRandom" style="padding:8px 12px; font-size:13px; display:none">🎲 Auto-fill empty bets</button>
       </div>
       <p class="sub">Predict the final score of each match. The whole round locks at the first kickoff of that round.</p>
       <div class="roundsel">
@@ -518,8 +518,9 @@ function paintBet(stage){
 $("#fillRandom").onclick = ()=>{
   const rnd = ()=> Math.floor(Math.random()*5); // 0–4
   document.querySelectorAll("#matchList .match:not(.locked)").forEach(el=>{
-    el.querySelector(".ph").value = rnd();
-    el.querySelector(".pa").value = rnd();
+    const ph=el.querySelector(".ph"), pa=el.querySelector(".pa");
+    if(ph.value==="") ph.value = rnd();
+    if(pa.value==="") pa.value = rnd();
   });
   const msg=$("#betMsg"); msg.className="msg"; msg.textContent="Filled with random scores — review, then Submit round.";
 };

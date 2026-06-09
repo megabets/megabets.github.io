@@ -141,6 +141,28 @@
   .hint{font-size:12px; color:var(--muted); margin-top:8px; line-height:1.5}
   footer{margin-top:30px; text-align:center; color:var(--muted); font-size:12px;
     font-family:"Spline Sans Mono",monospace}
+  /* chat */
+  nav.tabs button .unread{display:inline-block; width:7px; height:7px; border-radius:50%;
+    background:var(--accent2); margin-left:6px; vertical-align:middle; box-shadow:0 0 6px var(--accent2)}
+  nav.tabs button .unread[hidden]{display:none}
+  nav.tabs button.active .unread{background:#04210f; box-shadow:none}
+  #chatLog{display:flex; flex-direction:column; gap:8px; max-height:min(56vh,460px); overflow-y:auto;
+    padding:4px 2px; margin-bottom:12px}
+  .cmsg{display:flex; flex-direction:column; gap:2px; max-width:82%; align-self:flex-start}
+  .cmsg.mine{align-self:flex-end; align-items:flex-end}
+  .cmsg .bubble{background:var(--panel2); border:1px solid var(--line); border-radius:12px;
+    padding:8px 12px; font-size:14.5px; line-height:1.4; word-break:break-word; white-space:pre-wrap}
+  .cmsg.mine .bubble{background:rgba(0,224,122,.10); border-color:rgba(0,224,122,.35)}
+  .cmsg .head{display:flex; align-items:center; gap:8px; font-family:"Spline Sans Mono",monospace;
+    font-size:11px; color:var(--muted)}
+  .cmsg .who{color:var(--accent); font-weight:600}
+  .cmsg.mine .who{color:var(--muted)}
+  .cmsg .del{background:transparent; border:0; color:var(--muted); cursor:pointer; font-size:13px;
+    line-height:1; padding:0 2px}
+  .cmsg .del:hover{color:var(--accent2)}
+  .chatbar{display:flex; gap:8px; align-items:center}
+  .chatbar input{flex:1}
+  .chatbar .btn{padding:12px 16px; white-space:nowrap}
   /* pull-to-refresh */
   .ptr{position:fixed; top:0; left:0; right:0; display:flex; align-items:center; justify-content:center;
     gap:8px; height:0; overflow:hidden; color:var(--muted); font-family:"Spline Sans Mono",monospace;
@@ -170,7 +192,7 @@
       </div>
     </div>
   </header>
-  <p class="tagline">score predictions for money · World Cup 2026</p>
+  <p class="tagline">score predictions among friends · World Cup 2026</p>
   <div class="rules" id="rules">
     <button class="rulesbtn" id="rulesBtn">Scoring rules <span class="caret">▾</span></button>
     <div class="rulesmenu" id="rulesMenu">
@@ -183,6 +205,7 @@
   <nav class="tabs">
     <button data-tab="bet">Bet</button>
     <button data-tab="standings" class="active">Ranking</button>
+    <button data-tab="chat">Chat<span class="unread" id="chatUnread" hidden></span></button>
   </nav>
 
   <!-- BET -->
@@ -214,6 +237,20 @@
       <h2>Ranking</h2>
       <p class="sub">Live leaderboard. Tie-break: most exact-score hits.</p>
       <div id="standings"><div class="loading">Loading…</div></div>
+    </div>
+  </section>
+
+  <!-- CHAT -->
+  <section class="view" id="view-chat">
+    <div class="card">
+      <h2>Chat</h2>
+      <p class="sub">Talk smack with the league. Be nice-ish.</p>
+      <div id="chatLog"><div class="loading">Loading…</div></div>
+      <div class="chatbar">
+        <input type="text" id="chatInput" maxlength="500" placeholder="Message the league…" autocomplete="off" />
+        <button class="btn" id="chatSend">Send</button>
+      </div>
+      <div class="msg" id="chatMsg"></div>
     </div>
   </section>
 
@@ -304,6 +341,9 @@ let MATCHES = [];   // all matches
 let MY_PREDS = {};  // match_id -> {pred_home,pred_away}
 const ADMIN_NICK = "trololoic"; // organizer who may edit the hidden "Paid" column
 let showPaid = false; // revealed for this session by tapping the footer 5×
+let CHAT = [];             // loaded chat messages, ascending by created_at
+let chatTimer = null;      // 3s full-poll interval, runs only while the Chat tab is open
+let lastSeenChatId = null; // newest message id the user has seen (drives the unread dot)
 
 /* ───────────── helpers ───────────── */
 const $ = s => document.querySelector(s);
@@ -361,6 +401,7 @@ document.querySelectorAll("nav.tabs button").forEach(b=>{
     $("#view-"+b.dataset.tab).classList.add("active");
     if(b.dataset.tab==="bet") renderBet();
     if(b.dataset.tab==="standings") renderStandings();
+    if(b.dataset.tab==="chat"){ loadChat(); startChatPoll(); } else { stopChatPoll(); }
   };
 });
 
@@ -672,7 +713,7 @@ $("#saveBets").onclick = async ()=>{
   });
   if(!rows.length){ msg.className="msg err"; msg.textContent="Enter at least one score."; return; }
   try{
-    await rest("predictions",{method:"POST", prefer:"resolution=merge-duplicates,return=minimal", body:JSON.stringify(rows)});
+    await rest("predictions?on_conflict=player_id,match_id",{method:"POST", prefer:"resolution=merge-duplicates,return=minimal", body:JSON.stringify(rows)});
     await loadMyPreds(); paintBet($("#roundSel").value);
     msg.className="msg ok"; msg.textContent=`Saved ${rows.length} prediction(s).`;
   }catch(e){ msg.className="msg err"; msg.textContent="Error: "+e.message; }
@@ -732,10 +773,93 @@ async function renderStandings(){
   }catch(e){ box.innerHTML=`<div class="empty">Couldn't load: ${esc(e.message)}</div>`; }
 }
 
+/* ───────────── chat ───────────── */
+const chatActive = () => $("#view-chat").classList.contains("active");
+function setUnread(on){ $("#chatUnread").hidden = !on; }
+
+function renderChat(msgs){
+  const box = $("#chatLog");
+  if(!msgs.length){ box.innerHTML = `<div class="empty">No messages yet. Say hi 👋</div>`; return; }
+  const isAdmin = !!(me && me.nickname.toLowerCase()===ADMIN_NICK);
+  box.innerHTML = msgs.map(m=>{
+    const mine = !!(me && m.player_id===me.id);
+    const t = new Date(m.created_at).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+    const del = isAdmin ? `<button class="del" data-id="${m.id}" title="Delete" aria-label="Delete">✕</button>` : "";
+    return `<div class="cmsg ${mine?'mine':''}">
+      <div class="head"><span class="who">${esc(m.nickname)}</span><span>${t}</span>${del}</div>
+      <div class="bubble">${esc(m.text)}</div>
+    </div>`;
+  }).join("");
+  if(isAdmin) box.querySelectorAll(".del").forEach(b=> b.onclick=()=>deleteChat(b.dataset.id));
+}
+
+async function loadChat(){
+  let rows;
+  try{ rows = await rest("messages?select=*&order=created_at.asc&limit=200"); }
+  catch(e){ if(!CHAT.length) $("#chatLog").innerHTML = `<div class="empty">Couldn't load: ${esc(e.message)}</div>`; return; }
+  rows = rows || [];
+  const newest = rows.length ? rows[rows.length-1].id : null;
+  const current = CHAT.length ? CHAT[CHAT.length-1].id : null;
+  if(newest !== current || rows.length !== CHAT.length){ // skip re-render when nothing changed (no scroll jank)
+    const box = $("#chatLog");
+    const atBottom = !CHAT.length || box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+    CHAT = rows;
+    renderChat(rows);
+    if(atBottom) box.scrollTop = box.scrollHeight;
+  }
+  lastSeenChatId = newest; // viewing the tab marks everything seen
+  setUnread(false);
+}
+
+async function sendChat(){
+  const input = $("#chatInput"), msg = $("#chatMsg");
+  msg.className = "msg"; msg.textContent = "";
+  if(!me){ openLogin(); return; }
+  const text = input.value.trim();
+  if(!text) return;
+  if(text.length > 500){ msg.className="msg err"; msg.textContent="Too long (500 characters max)."; return; }
+  $("#chatSend").disabled = true;
+  try{
+    await rest("messages",{method:"POST", prefer:"return=minimal",
+      body:JSON.stringify({player_id:me.id, nickname:me.nickname, text})});
+    input.value = "";
+    await loadChat();
+    const box = $("#chatLog"); box.scrollTop = box.scrollHeight;
+  }catch(e){ msg.className="msg err"; msg.textContent="Couldn't send: "+e.message; }
+  finally{ $("#chatSend").disabled = false; input.focus(); }
+}
+
+async function deleteChat(id){
+  if(!(me && me.nickname.toLowerCase()===ADMIN_NICK)) return;
+  try{
+    await rest(`messages?id=eq.${id}`, {method:"DELETE", prefer:"return=minimal"});
+    CHAT = CHAT.filter(m=>m.id!==id);
+    renderChat(CHAT);
+  }catch(e){ const msg=$("#chatMsg"); msg.className="msg err"; msg.textContent="Couldn't delete: "+e.message; }
+}
+
+function startChatPoll(){ if(!chatTimer) chatTimer = setInterval(loadChat, 3000); }
+function stopChatPoll(){ if(chatTimer){ clearInterval(chatTimer); chatTimer = null; } }
+
+// Lightweight background check: surfaces the unread dot when a new message
+// arrives while the user is on another tab. Cheap — fetches just the newest id.
+async function checkChatUnread(){
+  if(chatActive() || document.hidden) return;
+  let rows;
+  try{ rows = await rest("messages?select=id&order=created_at.desc&limit=1"); }
+  catch(e){ return; }
+  const newest = rows && rows[0] ? rows[0].id : null;
+  if(newest && newest !== lastSeenChatId) setUnread(true);
+}
+
+$("#chatSend").onclick = sendChat;
+submitOnEnter(["chatInput"], "chatSend");
+
 /* ───────────── pull to refresh (touch) ───────────── */
 async function refreshData(){
   try{ await loadMatches(); }catch(e){}
-  if($("#view-bet").classList.contains("active")) await renderBet();
+  if(chatActive()) await loadChat();
+  else if($("#view-bet").classList.contains("active")) await renderBet();
   else await renderStandings();
 }
 (function(){
@@ -780,6 +904,12 @@ loadMatches().then(()=>{
   }
 }).catch(()=>{});
 renderStandings();
+// Seed the unread baseline to the newest existing message so the dot only lights
+// for messages that arrive during this session, then poll lightly in the background.
+rest("messages?select=id&order=created_at.desc&limit=1")
+  .then(rows=>{ lastSeenChatId = rows && rows[0] ? rows[0].id : null; })
+  .catch(()=>{});
+setInterval(checkChatUnread, 10000);
 </script>
 </body>
 </html>

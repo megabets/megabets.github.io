@@ -51,12 +51,25 @@ create table payments (
   updated_at timestamptz default now()
 );
 
+-- Group chat. `nickname` is denormalized so the poll doesn't join on players.
+-- Anyone can post or delete (open RLS); the UI gates deleting to 'trololoic'
+-- — a client-side deterrent, like the PIN and Paid-column gates.
+create table messages (
+  id uuid primary key default gen_random_uuid(),
+  player_id uuid references players(id) on delete cascade,
+  nickname text not null,
+  text text not null,
+  created_at timestamptz default now()
+);
+create index messages_created_idx on messages (created_at);
+
 -- ── Row Level Security ───────────────────────────────────
 alter table players enable row level security;
 alter table matches enable row level security;
 alter table predictions enable row level security;
 alter table bonuses enable row level security;
 alter table payments enable row level security;
+alter table messages enable row level security;
 
 -- Everyone can read (public league)
 create policy "read players"     on players     for select using (true);
@@ -64,6 +77,7 @@ create policy "read matches"     on matches     for select using (true);
 create policy "read predictions" on predictions for select using (true);
 create policy "read bonuses"     on bonuses     for select using (true);
 create policy "read payments"    on payments    for select using (true);
+create policy "read messages"    on messages    for select using (true);
 
 -- Anyone can create a player and submit/update their own predictions
 create policy "insert players"   on players     for insert with check (true);
@@ -74,6 +88,9 @@ create policy "insert bonuses"   on bonuses     for insert with check (true);
 -- Anyone can upsert a payment row; the UI gates editing to 'trololoic'.
 create policy "insert payments"  on payments    for insert with check (true);
 create policy "update payments"  on payments    for update using (true);
+-- Anyone can post or delete a message; the UI gates deleting to 'trololoic'.
+create policy "insert messages"  on messages    for insert with check (true);
+create policy "delete messages"  on messages    for delete using (true);
 
 -- A player's PIN may be set only while it is unclaimed (pin_hash is null).
 -- Once set, the anon key can no longer change it — so a nickname can't be
@@ -129,3 +146,21 @@ create policy "claim pin"        on players     for update using (pin_hash is nu
 --   create policy "read payments"   on payments for select using (true);
 --   create policy "insert payments" on payments for insert with check (true);
 --   create policy "update payments" on payments for update using (true);
+
+-- ── Migration: add messages (chat) to an EXISTING project ─
+-- Idempotent — run in the Supabase SQL Editor if `messages` doesn't exist yet:
+--   create table if not exists messages (
+--     id uuid primary key default gen_random_uuid(),
+--     player_id uuid references players(id) on delete cascade,
+--     nickname text not null,
+--     text text not null,
+--     created_at timestamptz default now()
+--   );
+--   create index if not exists messages_created_idx on messages (created_at);
+--   alter table messages enable row level security;
+--   drop policy if exists "read messages"   on messages;
+--   drop policy if exists "insert messages" on messages;
+--   drop policy if exists "delete messages" on messages;
+--   create policy "read messages"   on messages for select using (true);
+--   create policy "insert messages" on messages for insert with check (true);
+--   create policy "delete messages" on messages for delete using (true);

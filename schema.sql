@@ -41,17 +41,29 @@ create table bonuses (
   unique (player_id, kind)
 );
 
+-- Who has paid the buy-in. Kept in its own table (not a column on players) so the
+-- public anon key can toggle `paid` without an "update players" policy that would
+-- also expose pin_hash. Hidden behind a 5-tap footer gesture; only the organizer
+-- (nickname 'trololoic') edits it in the UI — a client-side deterrent, like PINs.
+create table payments (
+  player_id uuid primary key references players(id) on delete cascade,
+  paid boolean not null default false,
+  updated_at timestamptz default now()
+);
+
 -- ── Row Level Security ───────────────────────────────────
 alter table players enable row level security;
 alter table matches enable row level security;
 alter table predictions enable row level security;
 alter table bonuses enable row level security;
+alter table payments enable row level security;
 
 -- Everyone can read (public league)
 create policy "read players"     on players     for select using (true);
 create policy "read matches"     on matches     for select using (true);
 create policy "read predictions" on predictions for select using (true);
 create policy "read bonuses"     on bonuses     for select using (true);
+create policy "read payments"    on payments    for select using (true);
 
 -- Anyone can create a player and submit/update their own predictions
 create policy "insert players"   on players     for insert with check (true);
@@ -59,6 +71,9 @@ create policy "insert preds"     on predictions for insert with check (true);
 create policy "update preds"     on predictions for update using (true);
 -- Anyone can claim a bonus; unique(player_id,kind) caps it at one per kind.
 create policy "insert bonuses"   on bonuses     for insert with check (true);
+-- Anyone can upsert a payment row; the UI gates editing to 'trololoic'.
+create policy "insert payments"  on payments    for insert with check (true);
+create policy "update payments"  on payments    for update using (true);
 
 -- A player's PIN may be set only while it is unclaimed (pin_hash is null).
 -- Once set, the anon key can no longer change it — so a nickname can't be
@@ -99,3 +114,18 @@ create policy "claim pin"        on players     for update using (pin_hash is nu
 --   drop policy if exists "insert bonuses" on bonuses;
 --   create policy "read bonuses"   on bonuses for select using (true);
 --   create policy "insert bonuses" on bonuses for insert with check (true);
+
+-- ── Migration: add payments to an EXISTING project ───────
+-- Idempotent — run in the Supabase SQL Editor if `payments` doesn't exist yet:
+--   create table if not exists payments (
+--     player_id uuid primary key references players(id) on delete cascade,
+--     paid boolean not null default false,
+--     updated_at timestamptz default now()
+--   );
+--   alter table payments enable row level security;
+--   drop policy if exists "read payments"   on payments;
+--   drop policy if exists "insert payments" on payments;
+--   drop policy if exists "update payments" on payments;
+--   create policy "read payments"   on payments for select using (true);
+--   create policy "insert payments" on payments for insert with check (true);
+--   create policy "update payments" on payments for update using (true);

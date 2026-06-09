@@ -274,6 +274,8 @@ let me = JSON.parse(localStorage.getItem("wc_player") || "null"); // {id,nicknam
 let pendingJoin = null; // first-time PIN set awaiting confirmation
 let MATCHES = [];   // all matches
 let MY_PREDS = {};  // match_id -> {pred_home,pred_away}
+const ADMIN_NICK = "trololoic"; // organizer who may edit the hidden "Paid" column
+let showPaid = false; // revealed for this session by tapping the footer 5×
 
 /* ───────────── helpers ───────────── */
 const $ = s => document.querySelector(s);
@@ -395,6 +397,19 @@ document.addEventListener("click", ()=> $("#userMenu").classList.remove("open"))
 // scoring rules dropdown
 $("#rulesBtn").onclick = e=>{ e.stopPropagation(); $("#rules").classList.toggle("open"); };
 document.addEventListener("click", ()=> $("#rules").classList.remove("open"));
+// secret 5-tap footer gesture reveals the hidden "Paid" column (session only)
+(function(){
+  let taps = 0, last = 0;
+  $("footer").addEventListener("click", ()=>{
+    const now = Date.now();
+    taps = (now - last < 1500) ? taps + 1 : 1;
+    last = now;
+    if(taps >= 5 && !showPaid){
+      showPaid = true;
+      if($("#view-standings").classList.contains("active")) renderStandings();
+    }
+  });
+})();
 // performs the actual Supabase write for a first-time PIN, returns the player row
 async function persistNewPin({mode, playerId, nick, pin_hash}){
   if(mode === "claim"){
@@ -543,10 +558,13 @@ $("#saveBets").onclick = async ()=>{
 async function renderStandings(){
   const box=$("#standings"); box.innerHTML=`<div class="loading">Loading…</div>`;
   try{
-    const [players, preds] = await Promise.all([
+    const [players, preds, pays] = await Promise.all([
       rest("players?select=id,nickname"),
-      rest("predictions?select=player_id,match_id,pred_home,pred_away")
+      rest("predictions?select=player_id,match_id,pred_home,pred_away"),
+      showPaid ? rest("payments?select=player_id,paid") : Promise.resolve([])
     ]);
+    const paidById={}; (pays||[]).forEach(p=> paidById[p.player_id]=p.paid);
+    const isAdmin = !!(me && me.nickname.toLowerCase()===ADMIN_NICK);
     if(!MATCHES.length) await loadMatches();
     const mById={}; MATCHES.forEach(m=>mById[m.id]=m);
     const tally={}; players.forEach(p=> tally[p.id]={nick:p.nickname, pts:0, exact:0, played:0});
@@ -559,16 +577,34 @@ async function renderStandings(){
     const rows=Object.entries(tally).map(([id,t])=>({id,...t}))
       .sort((a,b)=> b.pts-a.pts || b.exact-a.exact || a.nick.localeCompare(b.nick));
     if(!rows.length){ box.innerHTML=`<div class="empty">No players yet.</div>`; return; }
+    const paidHead = showPaid ? `<th class="num">Paid</th>` : "";
+    const paidCell = r => !showPaid ? "" : (isAdmin
+      ? `<td class="num"><input type="checkbox" class="paidbox" data-pid="${r.id}" ${paidById[r.id]?'checked':''}></td>`
+      : `<td class="num">${paidById[r.id]?'✓':'–'}</td>`);
     box.innerHTML=`<table><thead><tr>
-      <th class="rank">#</th><th>Player</th><th class="num">Exact</th><th class="num">Played</th><th class="num">Pts</th>
+      <th class="rank">#</th><th>Player</th><th class="num">Exact</th><th class="num">Played</th><th class="num">Pts</th>${paidHead}
     </tr></thead><tbody>${rows.map((r,i)=>`
       <tr class="${me&&me.id===r.id?'me':''}">
         <td class="rank ${i===0?'top':''}">${i+1}</td>
         <td>${esc(r.nick)}${me&&me.id===r.id?' ·you':''}</td>
         <td class="num">${r.exact}</td>
         <td class="num">${r.played}</td>
-        <td class="num"><span class="total">${r.pts}</span></td>
-      </tr>`).join("")}</tbody></table>`;
+        <td class="num"><span class="total">${r.pts}</span></td>${paidCell(r)}
+      </tr>`).join("")}</tbody></table>${
+      showPaid && isAdmin
+        ? `<div style="margin-top:14px"><button class="btn" id="savePaid">Save paid</button><div class="msg" id="paidMsg"></div></div>`
+        : ""}`;
+    if(showPaid && isAdmin){
+      $("#savePaid").onclick = async ()=>{
+        const msg=$("#paidMsg"); msg.className="msg"; msg.textContent="Saving…";
+        const payRows=[...document.querySelectorAll(".paidbox")]
+          .map(cb=>({player_id:cb.dataset.pid, paid:cb.checked}));
+        try{
+          await rest("payments",{method:"POST", prefer:"resolution=merge-duplicates,return=minimal", body:JSON.stringify(payRows)});
+          msg.className="msg ok"; msg.textContent=`Saved (${payRows.filter(r=>r.paid).length} paid).`;
+        }catch(e){ msg.className="msg err"; msg.textContent="Error: "+e.message; }
+      };
+    }
   }catch(e){ box.innerHTML=`<div class="empty">Couldn't load: ${esc(e.message)}</div>`; }
 }
 

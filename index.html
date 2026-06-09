@@ -114,6 +114,15 @@
   .btn:hover{filter:brightness(1.08)} .btn:active{transform:translateY(1px)}
   .btn.sec{background:var(--panel2); color:var(--ink); border:1px solid var(--line)}
   .btn:disabled{opacity:.45; cursor:not-allowed}
+  #betActions.floating{
+    position:fixed; left:50%; transform:translateX(-50%);
+    bottom:20px; z-index:50;
+    width:auto; margin-top:0;
+    background:none; border:0; padding:0;
+    animation:betSlideUp .18s ease}
+  #betActions.floating .btn{box-shadow:0 8px 30px rgba(0,0,0,.5)}
+  #betActions.floating .msg{display:none}
+  @keyframes betSlideUp{ from{ opacity:0; transform:translate(-50%,12px) } to{ opacity:1; transform:translate(-50%,0) } }
   .msg{font-family:"Spline Sans Mono",monospace; font-size:13px; margin-top:12px; min-height:18px}
   .msg.ok{color:var(--accent)} .msg.err{color:var(--accent2)}
   /* match rows */
@@ -208,13 +217,13 @@
   <span class="rules-hint">any questions? ask in the chat or join our <a href="https://chat.whatsapp.com/LboBJmrqnOEEp36HurjfuW" target="_blank" rel="noopener" style="text-decoration: underline; color: inherit;">whatsapp</a></span>
 
   <nav class="tabs">
-    <button data-tab="bet">Bet</button>
-    <button data-tab="standings" class="active">Ranking</button>
+    <button data-tab="bet" class="active">Bet</button>
+    <button data-tab="standings">Ranking</button>
     <button data-tab="chat">Chat</button>
   </nav>
 
   <!-- BET -->
-  <section class="view" id="view-bet">
+  <section class="view active" id="view-bet">
     <div class="card">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:10px">
         <h2>Place your bets</h2>
@@ -230,14 +239,14 @@
       </div>
       <div id="matchList"><div class="loading">Loading matches…</div></div>
       <div id="betActions" style="margin-top:14px; display:none">
-        <button class="btn" id="saveBets">Submit round</button>
+        <button class="btn" id="saveBets">Save bets</button>
         <div class="msg" id="betMsg"></div>
       </div>
     </div>
   </section>
 
   <!-- STANDINGS -->
-  <section class="view active" id="view-standings">
+  <section class="view" id="view-standings">
     <div class="card">
       <h2>Ranking</h2>
       <p class="sub">Live leaderboard. Tie-break: most exact-score hits.</p>
@@ -322,6 +331,19 @@
     <h2 id="noticeTitle">📣 A message for you</h2>
     <p class="sub" id="noticeBody" style="white-space:pre-wrap"></p>
     <button class="btn" id="noticeOk" style="width:100%">OK</button>
+  </div>
+</div>
+
+<!-- Confirm auto-fill of empty bets -->
+<div class="backdrop" id="fillConfirmModal">
+  <div class="card modal">
+    <button class="modal-close" id="fillConfirmClose" aria-label="Close">×</button>
+    <h2>🎲 Auto-fill empty bets</h2>
+    <p class="sub" id="fillConfirmBody"></p>
+    <div style="display:flex; gap:10px; margin-top:14px">
+      <button class="btn sec" id="fillConfirmCancel" style="flex:1">Cancel</button>
+      <button class="btn" id="fillConfirmOk" style="flex:1">Fill scores</button>
+    </div>
   </div>
 </div>
 
@@ -907,17 +929,52 @@ function paintBet(stage){
   $("#betActions").style.display = locked ? "none" : "block";
   $("#fillRandom").style.display = locked ? "none" : "inline-block";
   if(locked){ list.insertAdjacentHTML("afterbegin",`<div class="hint" style="margin-bottom:10px">This round is locked — first match has kicked off.</div>`); }
+  if(!list.dataset.dirtyInit){ list.addEventListener("input", updateBetDirty); list.dataset.dirtyInit="1"; }
+  updateBetDirty();
+}
+// Float the Save button when any input differs from the last-saved value, so users are warned to save.
+function isBetDirty(){
+  let dirty=false;
+  document.querySelectorAll("#matchList .match:not(.locked)").forEach(el=>{
+    const p = MY_PREDS[el.dataset.id] || {};
+    const savedH = p.pred_home==null ? "" : String(p.pred_home);
+    const savedA = p.pred_away==null ? "" : String(p.pred_away);
+    if(el.querySelector(".ph").value !== savedH || el.querySelector(".pa").value !== savedA) dirty=true;
+  });
+  return dirty;
+}
+function updateBetDirty(){
+  $("#betActions").classList.toggle("floating", isBetDirty());
 }
 // Testing helper: fill every open match in the current round with a random 0–4 score.
-$("#fillRandom").onclick = ()=>{
+function countEmptyMatches(){
+  let n=0;
+  document.querySelectorAll("#matchList .match:not(.locked)").forEach(el=>{
+    const ph=el.querySelector(".ph"), pa=el.querySelector(".pa");
+    if(ph.value===""||pa.value==="") n++;
+  });
+  return n;
+}
+function doAutoFill(){
   const rnd = ()=> Math.floor(Math.random()*5); // 0–4
   document.querySelectorAll("#matchList .match:not(.locked)").forEach(el=>{
     const ph=el.querySelector(".ph"), pa=el.querySelector(".pa");
     if(ph.value==="") ph.value = rnd();
     if(pa.value==="") pa.value = rnd();
   });
-  const msg=$("#betMsg"); msg.className="msg"; msg.textContent="Filled with random scores — review, then Submit round.";
+  const msg=$("#betMsg"); msg.className="msg"; msg.textContent="Filled empty bets with random scores. Review then Submit round.";
+  updateBetDirty();
+}
+$("#fillRandom").onclick = ()=>{
+  const n=countEmptyMatches();
+  if(n===0){ const msg=$("#betMsg"); msg.className="msg"; msg.textContent="All scores already filled."; return; }
+  $("#fillConfirmBody").textContent = `Auto-fill ${n} match${n===1?"":"es"} with random scores? You can still edit them before submitting.`;
+  $("#fillConfirmModal").classList.add("open");
 };
+$("#fillConfirmOk").onclick = ()=>{ $("#fillConfirmModal").classList.remove("open"); doAutoFill(); };
+$("#fillConfirmCancel").onclick = ()=> $("#fillConfirmModal").classList.remove("open");
+$("#fillConfirmClose").onclick = ()=> $("#fillConfirmModal").classList.remove("open");
+$("#fillConfirmModal").onclick = e=>{ if(e.target===$("#fillConfirmModal")) $("#fillConfirmModal").classList.remove("open"); };
 $("#saveBets").onclick = async ()=>{
   const msg=$("#betMsg"); msg.className="msg"; msg.textContent="Saving…";
   const rows=[];
@@ -1142,7 +1199,7 @@ refreshWhoami();
 loadMatches()
   .then(()=> checkNotices())   // popups first; checkNotices() hands off to bootDeadline()
   .catch(()=> bootDeadline());
-renderStandings();
+renderBet();
 </script>
 </body>
 </html>

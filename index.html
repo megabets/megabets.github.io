@@ -232,12 +232,10 @@
   <!-- BET -->
   <section class="view active" id="view-bet">
     <div class="card">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px">
-        <h2>Place your bets</h2>
-        <div style="display:flex; gap:8px">
-          <button class="btn sec" id="deadlineReopen" style="padding:8px 12px; font-size:13px; display:none">⏱ Deadline</button>
-          <button class="btn sec" id="fillRandom" style="padding:8px 12px; font-size:13px; display:none">🎲 Auto-fill empty bets</button>
-        </div>
+      <h2>Place your bets</h2>
+      <div style="display:flex; gap:8px">
+        <button class="btn sec" id="deadlineReopen" style="padding:8px 12px; font-size:13px; display:none">⏱ Deadline</button>
+        <button class="btn sec" id="fillRandom" style="padding:8px 12px; font-size:13px; display:none">🎲 Auto-fill empty bets</button>
       </div>
       <p class="sub">Predict the final score of each match. The whole round locks at the first kickoff of that round.</p>
       <div class="roundsel">
@@ -385,11 +383,18 @@
 
     <div class="rules-section">Other rules</div>
     <ul class="rulelist">
-      <li>You need to place your bets before the kickoff of the first match of the upcoming round (the countdown tells you how much time you have). You can update your bets until kickoff.</li>
+      <li>For each round, you need to place your bets for the next round before the kickoff of the first match (the countdown tells you how much time you have). You can update your bets until kickoff.</li>
       <li>If you don't place a bet before the deadline, you score 0 points for those matches.</li>
       <li>On the leaderboard, ties are broken by most exact-score hits, then by most correct outcomes.</li>
       <li>If a match is postponed or cancelled, bets on it carry over to its rescheduled date.</li>
     </ul>
+
+    <div class="rules-section">Prize money</div>
+    <ul class="rulelist">
+      <li>Depending on how many participants there are, we'll likely split the money among top 3.</li>
+    </ul>
+  </div>
+</div>
   </div>
 </div>
 

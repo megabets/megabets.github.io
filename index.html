@@ -145,6 +145,13 @@
     margin-top:8px; font-family:"Spline Sans Mono",monospace; font-size:11.5px; color:var(--muted)}
   .match.locked{opacity:.62}
   .match.locked input{background:#0d1219; cursor:not-allowed}
+  /* logged-out: tapping a score square turns both squares of that match red, not the usual green */
+  .match .score:focus-within input[readonly]{border-color:var(--accent2)}
+  #loginToast{position:fixed; left:50%; transform:translateX(-50%); bottom:20px; z-index:60;
+    background:var(--panel); border:1px solid var(--accent2); color:var(--accent2);
+    padding:10px 16px; border-radius:10px; font-family:"Spline Sans Mono",monospace; font-size:13px;
+    box-shadow:0 8px 30px rgba(0,0,0,.5); pointer-events:none; animation:betSlideUp .18s ease}
+  #loginToast[hidden]{display:none}
   .tag{padding:2px 7px; border-radius:6px; font-size:10.5px; font-weight:600; border:1px solid var(--line)}
   .tag.live{color:var(--accent2); border-color:var(--accent2)}
   .tag.done{color:var(--accent); border-color:var(--accent)}
@@ -325,6 +332,9 @@
     <h2 id="deadlineTitle">YOU HAVE … TO PLACE YOUR BETS</h2>
     <p class="sub" id="deadlineSub"></p>
     <div id="deadlineClock" style="text-align:center;font-size:44px;font-weight:700;color:var(--accent);font-family:'Spline Sans Mono',monospace;margin:8px 0">--:--:--</div>
+    <label id="deadlineMuteWrap" style="display:none; align-items:center; gap:8px; margin:4px 0 10px; color:var(--muted); cursor:pointer; font-size:14px">
+      <input type="checkbox" id="deadlineMuteCb"> Don't remind me again until next round
+    </label>
     <button class="btn" id="deadlineOk" style="width:100%">Got it</button>
   </div>
 </div>
@@ -398,6 +408,8 @@
   </div>
 </div>
 
+<div id="loginToast" hidden>Log in to place bets.</div>
+
 <script type="module">
 /* ───────────── CONFIG ───────────── */
 const SUPABASE_URL  = "https://bocszfurxyyzacgjzmjc.supabase.co";
@@ -448,6 +460,11 @@ function roundLocked(stage){ // whole round locks at first kickoff of the round
   if(!ms.length) return false;
   const first = ms.reduce((a,b)=> new Date(a.kickoff)<new Date(b.kickoff)?a:b);
   return new Date(first.kickoff) <= new Date();
+}
+function roundFilled(stage){ // every match in the stage has a complete prediction
+  const ms = MATCHES.filter(m=>m.stage===stage);
+  if(!ms.length) return false;
+  return ms.every(m=>{ const p=MY_PREDS[m.id]; return p && p.pred_home!=null && p.pred_away!=null; });
 }
 function nextOpenRound(){ // {stage,label,kickoff} of earliest not-yet-locked stage, or null
   for(const stage of STAGE_ORDER){
@@ -535,6 +552,8 @@ $("#loginModal").onclick = e=>{ if(e.target===$("#loginModal")) closeLogin(); };
 /* ───────────── betting deadline countdown ───────────── */
 let deadlineTimer = null;
 let deadlineKickoff = null;
+let deadlineStage = null;
+let deadlineFilled = false;
 function tickDeadline(){
   const diff = new Date(deadlineKickoff) - new Date();
   if(diff <= 0){
@@ -546,14 +565,22 @@ function tickDeadline(){
   const h = Math.floor(diff/3.6e6), m = Math.floor(diff%3.6e6/6e4), s = Math.floor(diff%6e4/1e3);
   const pad = n => String(n).padStart(2,"0");
   $("#deadlineClock").textContent = `${pad(h)}:${pad(m)}:${pad(s)}`;
-  $("#deadlineTitle").textContent = h < 1
-    ? "LESS THAN AN HOUR TO PLACE YOUR BETS"
-    : `YOU HAVE ${h} HOUR${h===1?"":"S"} TO PLACE YOUR BETS`;
+  $("#deadlineTitle").textContent = deadlineFilled
+    ? (h < 1
+        ? "All your bets are filled. Less than an hour until they are locked-in."
+        : `All your bets are filled. ${h} hour${h===1?"":"s"} until they are locked-in.`)
+    : (h < 1
+        ? "LESS THAN AN HOUR TO PLACE YOUR BETS"
+        : `YOU HAVE ${h} HOUR${h===1?"":"S"} TO PLACE YOUR BETS`);
 }
 function openDeadline(){
   const r = nextOpenRound();
   if(!r) return;
   deadlineKickoff = r.kickoff;
+  deadlineStage = r.stage;
+  deadlineFilled = !!me && roundFilled(r.stage);
+  $("#deadlineMuteWrap").style.display = deadlineFilled ? "flex" : "none";
+  $("#deadlineMuteCb").checked = !!localStorage.getItem("deadlineMute:"+r.stage);
   $("#deadlineSub").textContent = `${r.label} · closes ${fmtKO(r.kickoff)}`;
   clearInterval(deadlineTimer);
   tickDeadline();
@@ -568,17 +595,28 @@ $("#deadlineOk").onclick = closeDeadline;
 $("#deadlineClose").onclick = closeDeadline;
 $("#deadlineModal").onclick = e=>{ if(e.target===$("#deadlineModal")) closeDeadline(); };
 $("#deadlineReopen").onclick = openDeadline;
+$("#deadlineMuteCb").onchange = e=>{ // applied immediately so it sticks even if the tab is closed
+  if(e.target.checked) localStorage.setItem("deadlineMute:"+deadlineStage,"1");
+  else localStorage.removeItem("deadlineMute:"+deadlineStage);
+};
 
 /* ───────────── notices (admin → single-user popup) ───────────── */
 // On boot, show every notice addressed to the current user, one at a time, BEFORE the
 // deadline countdown. Notices are never marked "seen": they recur each open until the
 // admin deletes them (chosen behaviour). bootDeadline() runs once the queue is drained.
 let noticeQueue = [];
-function bootDeadline(){
-  if(!sessionStorage.getItem("deadlineSeen") && nextOpenRound()){
-    sessionStorage.setItem("deadlineSeen","1");
-    openDeadline();
+async function bootDeadline(){
+  const r = nextOpenRound();
+  if(!r || sessionStorage.getItem("deadlineSeen")) return;
+  if(me){
+    try{ await loadMyPreds(); }catch(e){}
+    if(localStorage.getItem("deadlineMute:"+r.stage)){
+      if(roundFilled(r.stage)) return;                  // muted & still complete → skip
+      localStorage.removeItem("deadlineMute:"+r.stage); // slots reopened → clear stale mute
+    }
   }
+  sessionStorage.setItem("deadlineSeen","1");
+  openDeadline();
 }
 async function checkNotices(){
   if(!me){ bootDeadline(); return; }
@@ -898,11 +936,6 @@ function fillRoundSelect(sel){
 /* ───────────── bet view ───────────── */
 async function renderBet(){
   const list = $("#matchList");
-  if(!me){
-    list.innerHTML=`<div class="empty">Log in to place bets.<br><button class="btn" id="betLoginBtn" style="margin-top:14px">Log in</button></div>`;
-    $("#betLoginBtn").onclick = openLogin;
-    $("#betActions").style.display="none"; $("#fillRandom").style.display="none"; return;
-  }
   list.innerHTML=`<div class="loading">Loading…</div>`;
   try{
     if(!MATCHES.length) await loadMatches();
@@ -915,6 +948,7 @@ async function renderBet(){
 }
 function paintBet(stage){
   const list=$("#matchList");
+  const loggedOut = !me;
   const ms = MATCHES.filter(m=>m.stage===stage);
   if(!ms.length){ list.innerHTML=`<div class="empty">No matches in this round yet.</div>`; $("#betActions").style.display="none"; return; }
   const locked = roundLocked(stage);
@@ -930,19 +964,32 @@ function paintBet(stage){
     return `<div class="match ${mLock?'locked':''}" data-id="${m.id}">
       <div class="team">${esc(m.home_team)}</div>
       <div class="score">
-        <input type="number" min="0" max="30" class="ph" value="${p.pred_home??""}" ${mLock?'disabled':''}/>
+        <input type="number" min="0" max="30" class="ph" value="${p.pred_home??""}" ${mLock?'disabled':loggedOut?'readonly':''}/>
         <span style="color:var(--muted)">–</span>
-        <input type="number" min="0" max="30" class="pa" value="${p.pred_away??""}" ${mLock?'disabled':''}/>
+        <input type="number" min="0" max="30" class="pa" value="${p.pred_away??""}" ${mLock?'disabled':loggedOut?'readonly':''}/>
       </div>
       <div class="team away">${esc(m.away_team)}</div>
       <div class="meta"><span>${fmtKO(m.kickoff)}</span><span>${tag}${ptsHtml}</span></div>
     </div>`;
   }).join("");
-  $("#betActions").style.display = locked ? "none" : "block";
-  $("#fillRandom").style.display = locked ? "none" : "inline-block";
+  $("#betActions").style.display = (locked || loggedOut) ? "none" : "block";
+  $("#fillRandom").style.display = (locked || loggedOut) ? "none" : "inline-block";
   if(locked){ list.insertAdjacentHTML("afterbegin",`<div class="hint" style="margin-bottom:10px">This round is locked — first match has kicked off.</div>`); }
-  if(!list.dataset.dirtyInit){ list.addEventListener("input", updateBetDirty); list.dataset.dirtyInit="1"; }
+  if(!list.dataset.dirtyInit){
+    list.addEventListener("input", updateBetDirty);
+    list.addEventListener("focusin", e=>{
+      if(!me && e.target.matches(".ph,.pa")) showLoginToast();
+    });
+    list.dataset.dirtyInit="1";
+  }
   updateBetDirty();
+}
+// Fixed bottom toast telling logged-out users to log in; auto-hides after a few seconds.
+let loginToastTimer=null;
+function showLoginToast(){
+  const t=$("#loginToast"); t.hidden=false;
+  clearTimeout(loginToastTimer);
+  loginToastTimer=setTimeout(()=>{ t.hidden=true; }, 3000);
 }
 // Float the Save button when any input differs from the last-saved value, so users are warned to save.
 function isBetDirty(){

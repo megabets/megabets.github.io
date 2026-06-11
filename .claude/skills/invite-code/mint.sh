@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Mint or hash a malakabet invite code. Mirrors hashInvite() in index.html.
+# Mint or hash a malakabet invite code. Mirrors the normalization in
+# register_player() (sql/01_lockdown_setup.sql): trim, upper-case, SHA-256.
 #   mint.sh           -> random memorable code (WC26-XXXXX), prints CODE + HASH
 #   mint.sh WC26-FOO  -> hash the given code, prints CODE + HASH
 set -euo pipefail

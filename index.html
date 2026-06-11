@@ -241,10 +241,9 @@
     <div class="card">
       <h2>Place your bets</h2>
       <div style="display:flex; gap:8px">
-        <button class="btn sec" id="deadlineReopen" style="padding:8px 12px; font-size:13px; display:none">⏱ Deadline</button>
-        <button class="btn sec" id="fillRandom" style="padding:8px 12px; font-size:13px; display:none">🎲 Auto-fill empty bets</button>
+        <button class="btn sec" id="fillRandom" style="padding:8px 12px; font-size:13px">🎲 Auto-fill empty bets</button>
       </div>
-      <p class="sub">Predict the final score of each match. The whole round locks at the first kickoff of that round.</p>
+      <p class="sub">Predict the final score of each match. Each match locks at its kickoff — you can change your bet until then.</p>
       <div class="roundsel">
         <label style="margin:0">Round</label>
         <select id="roundSel" style="max-width:260px"></select>
@@ -325,20 +324,6 @@
   </div>
 </div>
 
-<!-- BETTING DEADLINE COUNTDOWN MODAL -->
-<div class="backdrop" id="deadlineModal">
-  <div class="card modal">
-    <button class="modal-close" id="deadlineClose" aria-label="Close">×</button>
-    <h2 id="deadlineTitle">YOU HAVE … TO PLACE YOUR BETS</h2>
-    <p class="sub" id="deadlineSub"></p>
-    <div id="deadlineClock" style="text-align:center;font-size:44px;font-weight:700;color:var(--accent);font-family:'Spline Sans Mono',monospace;margin:8px 0">--:--:--</div>
-    <label id="deadlineMuteWrap" style="display:none; align-items:center; gap:8px; margin:4px 0 10px; color:var(--muted); cursor:pointer; font-size:14px">
-      <input type="checkbox" id="deadlineMuteCb"> Don't remind me again until next round
-    </label>
-    <button class="btn" id="deadlineOk" style="width:100%">Got it</button>
-  </div>
-</div>
-
 <!-- NOTICE POPUP MODAL (message addressed to the current user) -->
 <div class="backdrop" id="noticeModal">
   <div class="card modal">
@@ -393,8 +378,8 @@
 
     <div class="rules-section">Other rules</div>
     <ul class="rulelist">
-      <li>For each round, you need to place your bets for the next round before the kickoff of the first match (the countdown tells you how much time you have). You can update your bets until kickoff.</li>
-      <li>If you don't place a bet before the deadline, you score 0 points for those matches.</li>
+      <li>Place your bet on each match before that match kicks off — you can update it until kickoff. Once a match starts, your bet for it is locked.</li>
+      <li>If you don't place a bet before kickoff, you score 0 points for that match.</li>
       <li>On the leaderboard, ties are broken by most exact-score hits, then by most correct outcomes.</li>
       <li>If a match is postponed or cancelled, bets on it carry over to its rescheduled date.</li>
     </ul>
@@ -414,9 +399,11 @@
 /* ───────────── CONFIG ───────────── */
 const SUPABASE_URL  = "https://bocszfurxyyzacgjzmjc.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJvY3N6ZnVyeHl5emFjZ2p6bWpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA4NDYyNjQsImV4cCI6MjA5NjQyMjI2NH0.eonkzgdDHrrEs6OmWIKAILLtRXSW4nZx27YrLsLWAXI";
-// This is the public ANON key (role:anon) — safe to ship. Row Level Security
-// protects the data. The service_role key NEVER appears here; match scores are
-// written only by GitHub Actions (cron + manual override) using the service key.
+// This is the public ANON key (role:anon) — safe to ship. It can only read
+// public data (nicknames, matches, kicked-off predictions); everything else
+// goes through credential-checked Postgres RPCs (see sql/01_lockdown_setup.sql).
+// The service_role key NEVER appears here; match scores are written only by
+// GitHub Actions (cron + manual override) using the service key.
 
 const STAGES = {
   MD1:"Group phase · Round 1", MD2:"Group phase · Round 2", MD3:"Group phase · Round 3",
@@ -435,9 +422,11 @@ const rest = (path, opts={}) => fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...(opts.headers||{})
   }
 }).then(async r=>{ const t=await r.text(); if(!r.ok) throw new Error(t||r.status); return t?JSON.parse(t):null; });
+// Human message from a PostgREST error body ({"code":"PTxxx","message":...}).
+const errMsg = e => { try{ return JSON.parse(e.message).message || e.message; }catch(_){ return e.message; } };
 
 /* ───────────── state ───────────── */
-let me = JSON.parse(localStorage.getItem("wc_player") || "null"); // {id,nickname}
+let me = JSON.parse(localStorage.getItem("wc_player") || "null"); // {id,nickname,auth} — auth = pin_hash, the chat-RPC credential
 let pendingJoin = null; // first-time PIN set awaiting confirmation
 let ALL_NICKS = null;   // cached nickname list for login suggestions (lazy-loaded)
 let MATCHES = [];   // all matches
@@ -449,32 +438,15 @@ let chatTimer = null;     // 3s poll interval, runs only while the Chat tab is o
 let chatRendered = false; // has the log been painted at least once this session?
 let chatSince = null;     // created_at of the newest message we hold (for incremental polls)
 const CHAT_MAX = 420;     // max characters per message (also enforced by a DB check)
+// Chat needs the server-verified credential; sessions saved before the chat
+// lock-down lack `.auth` and must log in once more to unlock chat.
+const canChat = () => !!(me && me.auth);
 
 /* ───────────── helpers ───────────── */
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const fmtKO = iso => new Date(iso).toLocaleString([], {weekday:"short", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"});
-const isLocked = m => new Date(m.kickoff) <= new Date();
-function roundLocked(stage){ // whole round locks at first kickoff of the round
-  const ms = MATCHES.filter(m=>m.stage===stage);
-  if(!ms.length) return false;
-  const first = ms.reduce((a,b)=> new Date(a.kickoff)<new Date(b.kickoff)?a:b);
-  return new Date(first.kickoff) <= new Date();
-}
-function roundFilled(stage){ // every match in the stage has a complete prediction
-  const ms = MATCHES.filter(m=>m.stage===stage);
-  if(!ms.length) return false;
-  return ms.every(m=>{ const p=MY_PREDS[m.id]; return p && p.pred_home!=null && p.pred_away!=null; });
-}
-function nextOpenRound(){ // {stage,label,kickoff} of earliest not-yet-locked stage, or null
-  for(const stage of STAGE_ORDER){
-    const ms = MATCHES.filter(m=>m.stage===stage);
-    if(!ms.length) continue;
-    const first = ms.reduce((a,b)=> new Date(a.kickoff)<new Date(b.kickoff)?a:b);
-    if(new Date(first.kickoff) > new Date()) return {stage, label:STAGES[stage], kickoff:first.kickoff};
-  }
-  return null;
-}
+const isLocked = m => new Date(m.kickoff) <= new Date(); // each match locks at its own kickoff
 function points(m, ph, pa){
   if(m.home_score==null||m.away_score==null||ph==null||pa==null) return null;
   if(ph===m.home_score && pa===m.away_score) return 3;
@@ -482,24 +454,27 @@ function points(m, ph, pa){
   return ao===po ? 1 : 0;
 }
 // Client-side PIN hash: SHA-256 of "nickname:pin" (nickname salts it so the same
-// PIN on different nicknames yields different hashes). Deterrent only — see Join hint.
+// PIN on different nicknames yields different hashes). The hash is the RPC
+// credential (me.auth) — the server compares it to players.pin_hash, which the
+// anon key can no longer read. Verified server-side; the PIN itself never
+// leaves the browser.
 async function hashPin(nick, pin){
   const data = new TextEncoder().encode(nick.toLowerCase()+":"+pin);
   const buf = await crypto.subtle.digest("SHA-256", data);
   return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
 }
-// Invite gate (first-time registration only). We store ONLY the SHA-256 of each
-// code (trimmed + upper-cased) so the plaintext isn't visible in this public
-// source — a deterrent, like the PINs above, not bank-grade security.
-// Mint/revoke codes with the `invite-code` skill (.claude/skills/invite-code).
-const INVITE_HASHES = [
-  "d287bc1ddabd7061431059e42910395864df27239c8d6d1416fa59f34bf73eef", // minted 2026-06-08
-  "ebe7a7fb1cd6740ed29486e32b05a39a5551ae9ff1cf3b5d07120ee9e5d2c92e", // minted 2026-06-08
-  "12a7cff00a2d4279deddb037a9b9614e3277ea4af7d8003c1f218ae1a2c48001", // WC2026 — minted 2026-06-09
-];
-async function hashInvite(code){
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(code.trim().toUpperCase()));
-  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
+// Invite codes are verified server-side by rpc/register_player against the
+// `invites` table — no hashes ship in this file anymore. Mint/revoke codes
+// with the `invite-code` skill (.claude/skills/invite-code).
+// A credential that exists locally but is rejected server-side (e.g. the PIN
+// was re-claimed elsewhere): drop it and ask for the PIN once more.
+function handleAuthFail(){
+  const oldNick = me && me.nickname;
+  if(me){ delete me.auth; localStorage.setItem("wc_player", JSON.stringify(me)); }
+  openLogin();
+  if(oldNick) $("#nick").value = oldNick;
+  $("#joinMsg").className = "msg err";
+  $("#joinMsg").textContent = "Session expired — please enter your PIN again.";
 }
 
 /* ───────────── tabs ───────────── */
@@ -511,7 +486,7 @@ document.querySelectorAll("nav.tabs button").forEach(b=>{
     $("#view-"+b.dataset.tab).classList.add("active");
     if(b.dataset.tab==="bet") renderBet();
     if(b.dataset.tab==="standings") renderStandings();
-    if(b.dataset.tab==="chat"){ loadChat(); startChatPoll(); } else { stopChatPoll(); }
+    if(b.dataset.tab==="chat"){ if(canChat()){ loadChat(); startChatPoll(); } else renderChatLocked(); } else { stopChatPoll(); }
   };
 });
 
@@ -528,6 +503,7 @@ function refreshWhoami(){
     $("#userChip").style.display = "none";
     $("#userMenu").classList.remove("open");
   }
+  updateChatGate();
 }
 // Lazily load the player nickname list once (best-effort). Used by login suggestions
 // and the admin /alert username dropdown.
@@ -549,90 +525,29 @@ $("#loginBtn").onclick = openLogin;
 $("#loginClose").onclick = closeLogin;
 $("#loginModal").onclick = e=>{ if(e.target===$("#loginModal")) closeLogin(); };
 
-/* ───────────── betting deadline countdown ───────────── */
-let deadlineTimer = null;
-let deadlineKickoff = null;
-let deadlineStage = null;
-let deadlineFilled = false;
-function tickDeadline(){
-  const diff = new Date(deadlineKickoff) - new Date();
-  if(diff <= 0){
-    $("#deadlineTitle").textContent = "Betting is closed for this round";
-    $("#deadlineClock").textContent = "00:00:00";
-    clearInterval(deadlineTimer); deadlineTimer = null;
-    return;
-  }
-  const h = Math.floor(diff/3.6e6), m = Math.floor(diff%3.6e6/6e4), s = Math.floor(diff%6e4/1e3);
-  const pad = n => String(n).padStart(2,"0");
-  $("#deadlineClock").textContent = `${pad(h)}:${pad(m)}:${pad(s)}`;
-  $("#deadlineTitle").textContent = deadlineFilled
-    ? (h < 1
-        ? "All your bets are filled. Less than an hour until they are locked-in."
-        : `All your bets are filled. ${h} hour${h===1?"":"s"} until they are locked-in.`)
-    : (h < 1
-        ? "LESS THAN AN HOUR TO PLACE YOUR BETS"
-        : `YOU HAVE ${h} HOUR${h===1?"":"S"} TO PLACE YOUR BETS`);
-}
-function openDeadline(){
-  const r = nextOpenRound();
-  if(!r) return;
-  deadlineKickoff = r.kickoff;
-  deadlineStage = r.stage;
-  deadlineFilled = !!me && roundFilled(r.stage);
-  $("#deadlineMuteWrap").style.display = deadlineFilled ? "flex" : "none";
-  $("#deadlineMuteCb").checked = !!localStorage.getItem("deadlineMute:"+r.stage);
-  $("#deadlineSub").textContent = `${r.label} · closes ${fmtKO(r.kickoff)}`;
-  clearInterval(deadlineTimer);
-  tickDeadline();
-  deadlineTimer = setInterval(tickDeadline, 1000);
-  $("#deadlineModal").classList.add("open");
-}
-function closeDeadline(){
-  clearInterval(deadlineTimer); deadlineTimer = null;
-  $("#deadlineModal").classList.remove("open");
-}
-$("#deadlineOk").onclick = closeDeadline;
-$("#deadlineClose").onclick = closeDeadline;
-$("#deadlineModal").onclick = e=>{ if(e.target===$("#deadlineModal")) closeDeadline(); };
-$("#deadlineReopen").onclick = openDeadline;
-$("#deadlineMuteCb").onchange = e=>{ // applied immediately so it sticks even if the tab is closed
-  if(e.target.checked) localStorage.setItem("deadlineMute:"+deadlineStage,"1");
-  else localStorage.removeItem("deadlineMute:"+deadlineStage);
-};
-
 /* ───────────── notices (admin → single-user popup) ───────────── */
-// On boot, show every notice addressed to the current user, one at a time, BEFORE the
-// deadline countdown. Notices are never marked "seen": they recur each open until the
-// admin deletes them (chosen behaviour). bootDeadline() runs once the queue is drained.
+// On boot, show every notice addressed to the current user, one at a time.
+// Notices are never marked "seen": they recur each open until the admin
+// deletes them (chosen behaviour).
 let noticeQueue = [];
-async function bootDeadline(){
-  const r = nextOpenRound();
-  if(!r || sessionStorage.getItem("deadlineSeen")) return;
-  if(me){
-    try{ await loadMyPreds(); }catch(e){}
-    if(localStorage.getItem("deadlineMute:"+r.stage)){
-      if(roundFilled(r.stage)) return;                  // muted & still complete → skip
-      localStorage.removeItem("deadlineMute:"+r.stage); // slots reopened → clear stale mute
-    }
-  }
-  sessionStorage.setItem("deadlineSeen","1");
-  openDeadline();
-}
 async function checkNotices(){
-  if(!me){ bootDeadline(); return; }
-  try{ noticeQueue = await rest(`notices?select=*&to_nick=eq.${encodeURIComponent(me.nickname.toLowerCase())}&order=created_at.asc`) || []; }
+  if(!me || !me.auth) return;
+  // recipient-only read, credential-checked server-side (best-effort: any
+  // failure just skips popups for this visit)
+  try{ noticeQueue = await rest("rpc/notices_fetch", {method:"POST",
+    body:JSON.stringify({p_player:me.id, p_auth:me.auth})}) || []; }
   catch(e){ noticeQueue = []; }
   showNextNotice();
 }
 function showNextNotice(){
   const n = noticeQueue.shift();
-  if(!n){ bootDeadline(); return; }   // queue drained → hand off to the countdown
+  if(!n) return;   // queue drained
   $("#noticeBody").textContent = n.body;
   $("#noticeModal").classList.add("open");
 }
 function closeNotice(){
   $("#noticeModal").classList.remove("open");
-  showNextNotice();   // advance to the next queued notice (or the deadline)
+  showNextNotice();   // advance to the next queued notice
 }
 $("#noticeOk").onclick = closeNotice;
 $("#noticeClose").onclick = closeNotice;
@@ -664,11 +579,9 @@ $("#adminNoticeModal").onclick = e=>{ if(e.target===$("#adminNoticeModal")) clos
 async function renderAdminNoticeList(){
   const wrap = $("#adminNoticeList");
   const all = adminNoticeNick == null;
-  const path = all
-    ? `notices?select=*&order=created_at.desc`
-    : `notices?select=*&to_nick=eq.${encodeURIComponent(adminNoticeNick.toLowerCase())}&order=created_at.desc`;
   let rows;
-  try{ rows = await rest(path) || []; }
+  try{ rows = await rest("rpc/notices_list", {method:"POST",
+    body:JSON.stringify({p_player:me.id, p_auth:me.auth, p_to_nick: all ? null : adminNoticeNick})}) || []; }
   catch(e){ wrap.innerHTML=""; return; }
   if(!rows.length){
     wrap.innerHTML = `<p class="hint" style="margin-top:12px">${all ? "No active popups." : "No active popups for this user."}</p>`;
@@ -686,20 +599,21 @@ async function sendNotice(){
   if(!body){ msg.className="msg err"; msg.textContent="Type a message first."; return; }
   $("#adminNoticeSend").disabled = true;
   try{
-    await rest("notices",{method:"POST", prefer:"return=minimal",
-      body:JSON.stringify({to_nick:adminNoticeNick.toLowerCase(), body})});
+    await rest("rpc/notices_send",{method:"POST", prefer:"return=minimal",
+      body:JSON.stringify({p_player:me.id, p_auth:me.auth, p_to_nick:adminNoticeNick, p_body:body})});
     ta.value="";
     msg.className="msg ok"; msg.textContent=`Popup sent to ${adminNoticeNick}.`;
     await renderAdminNoticeList();
-  }catch(e){ msg.className="msg err"; msg.textContent="Couldn't send: "+e.message; }
+  }catch(e){ msg.className="msg err"; msg.textContent="Couldn't send: "+errMsg(e); }
   finally{ $("#adminNoticeSend").disabled = false; }
 }
 async function deleteNotice(id){
   if(!isAdmin()) return;
   try{
-    await rest(`notices?id=eq.${id}`, {method:"DELETE", prefer:"return=minimal"});
+    await rest("rpc/notices_delete", {method:"POST", prefer:"return=minimal",
+      body:JSON.stringify({p_player:me.id, p_auth:me.auth, p_id:Number(id)})});
     await renderAdminNoticeList();
-  }catch(e){ const msg=$("#adminNoticeMsg"); msg.className="msg err"; msg.textContent="Couldn't delete: "+e.message; }
+  }catch(e){ const msg=$("#adminNoticeMsg"); msg.className="msg err"; msg.textContent="Couldn't delete: "+errMsg(e); }
 }
 $("#adminNoticeSend").onclick = sendNotice;
 
@@ -717,8 +631,8 @@ $("#confirmBtn").onclick = async ()=>{
   if(!pendingJoin) return;
   const cmsg = $("#confirmMsg");
   const code = $("#inviteCode").value.trim();
-  if(!code || !INVITE_HASHES.includes(await hashInvite(code))){
-    cmsg.className="msg err"; cmsg.textContent="Invalid invite code.";
+  if(!code){
+    cmsg.className="msg err"; cmsg.textContent="Enter your invite code.";
     $("#inviteCode").focus(); return;
   }
   if($("#pinConfirm").value.trim() !== pendingJoin.pin){
@@ -727,14 +641,20 @@ $("#confirmBtn").onclick = async ()=>{
   }
   cmsg.className="msg"; cmsg.textContent="Joining…";
   try{
-    const player = await persistNewPin(pendingJoin);
-    finishLogin(player);
+    // invite code + nickname availability are verified server-side; handles
+    // both a brand-new nickname and the legacy "claim" (PIN-less player)
+    const [player] = await rest("rpc/register_player", {method:"POST",
+      body:JSON.stringify({p_nickname:pendingJoin.nick, p_pin_hash:pendingJoin.pin_hash, p_invite:code})});
+    finishLogin(player, pendingJoin.pin_hash);
     pendingJoin=null;
     cmsg.className="msg ok"; cmsg.textContent=`You're in as ${player.nickname}.`;
     setTimeout(()=>{ closeConfirm(); closeLogin(); }, 700);
   }catch(e){
+    const m = errMsg(e);
     cmsg.className="msg err";
-    cmsg.textContent = String(e).includes("duplicate") ? "That nickname is taken." : "Error: "+e.message;
+    if(/invalid invite code/i.test(m)){ cmsg.textContent="Invalid invite code."; $("#inviteCode").focus(); }
+    else if(/nickname taken|duplicate/i.test(m)){ cmsg.textContent="That nickname is taken."; }
+    else cmsg.textContent = "Error: "+m;
   }
 };
 // pressing Enter in a modal's inputs acts like clicking its confirm button
@@ -860,18 +780,9 @@ $("#rulesModal").onclick = e=>{ if(e.target===$("#rulesModal")) $("#rulesModal")
     }
   });
 })();
-// performs the actual Supabase write for a first-time PIN, returns the player row
-async function persistNewPin({mode, playerId, nick, pin_hash}){
-  if(mode === "claim"){
-    await rest(`players?id=eq.${playerId}`,{method:"PATCH", prefer:"return=minimal", body:JSON.stringify({pin_hash})});
-    return {id: playerId, nickname: nick};
-  }
-  const created = await rest("players",{method:"POST",body:JSON.stringify({nickname:nick, pin_hash})});
-  return created[0];
-}
 // shared finish step (set session, persist, refresh views)
-function finishLogin(player){
-  me = {id:player.id, nickname:player.nickname};
+function finishLogin(player, auth){
+  me = {id:player.id, nickname:player.nickname, auth};
   localStorage.setItem("wc_player", JSON.stringify(me));
   refreshWhoami();
   $("#pin").value="";
@@ -887,29 +798,31 @@ $("#joinBtn").onclick = async ()=>{
   msg.className="msg"; msg.textContent="Joining…";
   try{
     const pin_hash = await hashPin(nick, pin);
-    // already exists?
-    const found = await rest(`players?nickname=eq.${encodeURIComponent(nick)}&select=id,nickname,pin_hash`);
-    const player = (found && found.length) ? found[0] : null;
-    if(player && player.pin_hash){
-      // existing claimed player — must match, then log in immediately (no confirm)
-      if(player.pin_hash !== pin_hash){ msg.className="msg err"; msg.textContent="Wrong PIN for that nickname."; return; }
-      finishLogin(player);
-      msg.className="msg ok"; msg.textContent=`You're in as ${player.nickname}.`;
+    // verified server-side — pin_hash is no longer readable via the anon key
+    const [r] = await rest("rpc/login_player", {method:"POST",
+      body:JSON.stringify({p_nickname:nick, p_pin_hash:pin_hash})});
+    if(r.status === "ok"){
+      // existing claimed player — log in immediately (no confirm)
+      finishLogin({id:r.id, nickname:r.nickname}, pin_hash);
+      msg.className="msg ok"; msg.textContent=`You're in as ${r.nickname}.`;
       setTimeout(closeLogin, 700);
       return;
     }
+    if(r.status === "wrong_pin"){ msg.className="msg err"; msg.textContent="Wrong PIN for that nickname."; return; }
     // first-time PIN set (brand-new nickname OR legacy/unclaimed claim) — confirm before writing
-    pendingJoin = { nick, pin, pin_hash, mode: player ? "claim" : "new", playerId: player ? player.id : null };
+    pendingJoin = { nick, pin, pin_hash };
     openConfirm();
   }catch(e){
+    const m = errMsg(e);
     msg.className="msg err";
-    msg.textContent = String(e).includes("duplicate") ? "That nickname is taken." : "Error: "+e.message;
+    msg.textContent = /too many attempts/i.test(m) ? "Too many attempts — try again in a few minutes." : "Error: "+m;
   }
 };
 $("#switchBtn").onclick = ()=>{
   me=null; localStorage.removeItem("wc_player");
   $("#userMenu").classList.remove("open");
-  refreshWhoami();
+  stopChatPoll(); CHAT=[]; chatSince=null; chatRendered=false;
+  refreshWhoami(); // also re-locks the chat panel via updateChatGate()
   $("#nick").value=""; $("#pin").value=""; hideNickSuggest();
   // refresh whichever view is showing
   if($("#view-bet").classList.contains("active")) renderBet();
@@ -923,8 +836,16 @@ async function loadMatches(){
 }
 async function loadMyPreds(){
   MY_PREDS = {};
-  if(!me) return;
-  const rows = await rest(`predictions?player_id=eq.${me.id}&select=match_id,pred_home,pred_away`) || [];
+  if(!me || !me.auth) return;
+  // own bets (incl. future matches the public SELECT policy hides) via RPC
+  let rows;
+  try{
+    rows = await rest("rpc/preds_fetch", {method:"POST",
+      body:JSON.stringify({p_player:me.id, p_auth:me.auth})}) || [];
+  }catch(e){
+    if(/invalid credentials/.test(String(e))){ handleAuthFail(); return; }
+    throw e;
+  }
   rows.forEach(r=> MY_PREDS[r.match_id]={pred_home:r.pred_home,pred_away:r.pred_away});
 }
 function fillRoundSelect(sel){
@@ -941,7 +862,6 @@ async function renderBet(){
     if(!MATCHES.length) await loadMatches();
     await loadMyPreds();
   }catch(e){ list.innerHTML=`<div class="empty">Couldn't load matches: ${esc(e.message)}</div>`; return; }
-  $("#deadlineReopen").style.display = nextOpenRound() ? "inline-block" : "none";
   const sel=$("#roundSel");
   if(!sel.dataset.init){ fillRoundSelect(sel); sel.dataset.init="1"; sel.onchange=()=>paintBet(sel.value); }
   paintBet(sel.value || sel.options[0]?.value);
@@ -951,10 +871,10 @@ function paintBet(stage){
   const loggedOut = !me;
   const ms = MATCHES.filter(m=>m.stage===stage);
   if(!ms.length){ list.innerHTML=`<div class="empty">No matches in this round yet.</div>`; $("#betActions").style.display="none"; return; }
-  const locked = roundLocked(stage);
+  const allLocked = ms.every(isLocked);
   list.innerHTML = ms.map(m=>{
     const p = MY_PREDS[m.id]||{};
-    const mLock = locked || isLocked(m);
+    const mLock = isLocked(m);
     const played = m.home_score!=null && m.away_score!=null;
     let tag = `<span class="tag open">open</span>`;
     if(played) tag=`<span class="tag done">FT ${m.home_score}–${m.away_score}</span>`;
@@ -972,9 +892,8 @@ function paintBet(stage){
       <div class="meta"><span>${fmtKO(m.kickoff)}</span><span>${tag}${ptsHtml}</span></div>
     </div>`;
   }).join("");
-  $("#betActions").style.display = (locked || loggedOut) ? "none" : "block";
-  $("#fillRandom").style.display = (locked || loggedOut) ? "none" : "inline-block";
-  if(locked){ list.insertAdjacentHTML("afterbegin",`<div class="hint" style="margin-bottom:10px">This round is locked — first match has kicked off.</div>`); }
+  $("#betActions").style.display = (allLocked || loggedOut) ? "none" : "block";
+  if(allLocked){ list.insertAdjacentHTML("afterbegin",`<div class="hint" style="margin-bottom:10px">All matches in this round have kicked off — bets are locked.</div>`); }
   if(!list.dataset.dirtyInit){
     list.addEventListener("input", updateBetDirty);
     list.addEventListener("focusin", e=>{
@@ -1005,6 +924,29 @@ function isBetDirty(){
 function updateBetDirty(){
   $("#betActions").classList.toggle("floating", isBetDirty());
 }
+// Matches lock one by one while the page is open: every 10 s flip newly
+// kicked-off matches to locked in place (no re-paint, so unsaved edits in
+// the other matches survive).
+function applyLocks(){
+  const list=$("#matchList");
+  let changed=false;
+  list.querySelectorAll(".match:not(.locked)").forEach(el=>{
+    const m = MATCHES.find(x=> String(x.id)===el.dataset.id);
+    if(!m || !isLocked(m)) return;
+    el.classList.add("locked");
+    el.querySelectorAll(".ph,.pa").forEach(i=>{ i.disabled=true; });
+    const tag = el.querySelector(".tag.open");
+    if(tag){ tag.className="tag live"; tag.textContent="locked"; }
+    changed=true;
+  });
+  if(!changed) return;
+  if(!list.querySelector(".match:not(.locked)")){
+    $("#betActions").style.display="none";
+    list.insertAdjacentHTML("afterbegin",`<div class="hint" style="margin-bottom:10px">All matches in this round have kicked off — bets are locked.</div>`);
+  }
+  updateBetDirty();
+}
+setInterval(applyLocks, 10000);
 // Testing helper: fill every open match in the current round with a random 0–4 score.
 function countEmptyMatches(){
   let n=0;
@@ -1026,7 +968,12 @@ function doAutoFill(){
 }
 $("#fillRandom").onclick = ()=>{
   const n=countEmptyMatches();
-  if(n===0){ const msg=$("#betMsg"); msg.className="msg"; msg.textContent="All scores already filled."; return; }
+  if(n===0){
+    const msg=$("#betMsg"); msg.className="msg";
+    msg.textContent = document.querySelector("#matchList .match:not(.locked)")
+      ? "All scores already filled." : "No open matches to fill.";
+    return;
+  }
   $("#fillConfirmBody").textContent = `Auto-fill ${n} match${n===1?"":"es"} with random scores? You can still edit them before submitting.`;
   $("#fillConfirmModal").classList.add("open");
 };
@@ -1036,30 +983,42 @@ $("#fillConfirmClose").onclick = ()=> $("#fillConfirmModal").classList.remove("o
 $("#fillConfirmModal").onclick = e=>{ if(e.target===$("#fillConfirmModal")) $("#fillConfirmModal").classList.remove("open"); };
 $("#saveBets").onclick = async ()=>{
   const msg=$("#betMsg"); msg.className="msg"; msg.textContent="Saving…";
+  if(!me || !me.auth){ msg.textContent=""; openLogin(); return; }
   const rows=[];
   document.querySelectorAll("#matchList .match:not(.locked)").forEach(el=>{
     const ph=el.querySelector(".ph").value, pa=el.querySelector(".pa").value;
-    if(ph!==""&&pa!==""){ rows.push({player_id:me.id, match_id:Number(el.dataset.id), pred_home:Number(ph), pred_away:Number(pa)}); }
+    if(ph!==""&&pa!==""){ rows.push({match_id:Number(el.dataset.id), pred_home:Number(ph), pred_away:Number(pa)}); }
   });
   if(!rows.length){ msg.className="msg err"; msg.textContent="Enter at least one score."; return; }
   try{
-    await rest("predictions?on_conflict=player_id,match_id",{method:"POST", prefer:"resolution=merge-duplicates,return=minimal", body:JSON.stringify(rows)});
+    // credential-checked upsert; the server also skips kicked-off matches
+    const saved = await rest("rpc/preds_save", {method:"POST",
+      body:JSON.stringify({p_player:me.id, p_auth:me.auth, p_preds:rows})});
     await loadMyPreds(); paintBet($("#roundSel").value);
-    msg.className="msg ok"; msg.textContent=`Saved ${rows.length} prediction(s).`;
-  }catch(e){ msg.className="msg err"; msg.textContent="Error: "+e.message; }
+    msg.className="msg ok"; msg.textContent=`Saved ${saved} prediction(s).`;
+  }catch(e){
+    if(/invalid credentials/.test(String(e))){ msg.textContent=""; handleAuthFail(); return; }
+    msg.className="msg err"; msg.textContent="Error: "+errMsg(e);
+  }
 };
 
 /* ───────────── standings ───────────── */
 async function renderStandings(){
   const box=$("#standings"); box.innerHTML=`<div class="loading">Loading…</div>`;
   try{
+    // payments are admin-only now (server-enforced), so the 5-tap Paid column
+    // only renders for the organizer; the kicked-off-only SELECT policy on
+    // predictions returns exactly the rows that can score
+    const isAdmin = !!(me && me.auth && me.nickname.toLowerCase()===ADMIN_NICK);
     const [players, preds, pays] = await Promise.all([
       rest("players?select=id,nickname"),
       rest("predictions?select=player_id,match_id,pred_home,pred_away"),
-      showPaid ? rest("payments?select=player_id,paid") : Promise.resolve([])
+      (showPaid && isAdmin)
+        ? rest("rpc/payments_fetch", {method:"POST", body:JSON.stringify({p_player:me.id, p_auth:me.auth})}).catch(()=>[])
+        : Promise.resolve([])
     ]);
     const paidById={}; (pays||[]).forEach(p=> paidById[p.player_id]=p.paid);
-    const isAdmin = !!(me && me.nickname.toLowerCase()===ADMIN_NICK);
+    showPaid = showPaid && isAdmin; // non-admins have nothing to reveal anymore
     if(!MATCHES.length) await loadMatches();
     const mById={}; MATCHES.forEach(m=>mById[m.id]=m);
     const tally={}; players.forEach(p=> tally[p.id]={nick:p.nickname, pts:0, exact:0, played:0});
@@ -1095,9 +1054,10 @@ async function renderStandings(){
         const payRows=[...document.querySelectorAll(".paidbox")]
           .map(cb=>({player_id:cb.dataset.pid, paid:cb.checked}));
         try{
-          await rest("payments",{method:"POST", prefer:"resolution=merge-duplicates,return=minimal", body:JSON.stringify(payRows)});
+          await rest("rpc/payments_save",{method:"POST", prefer:"return=minimal",
+            body:JSON.stringify({p_player:me.id, p_auth:me.auth, p_rows:payRows})});
           msg.className="msg ok"; msg.textContent=`Saved (${payRows.filter(r=>r.paid).length} paid).`;
-        }catch(e){ msg.className="msg err"; msg.textContent="Error: "+e.message; }
+        }catch(e){ msg.className="msg err"; msg.textContent="Error: "+errMsg(e); }
       };
     }
   }catch(e){ box.innerHTML=`<div class="empty">Couldn't load: ${esc(e.message)}</div>`; }
@@ -1105,6 +1065,44 @@ async function renderStandings(){
 
 /* ───────────── chat ───────────── */
 const chatActive = () => $("#view-chat").classList.contains("active");
+
+// Locked panel shown instead of the log when the visitor can't read chat.
+// Two variants: plain logged-out, and legacy sessions saved before the chat
+// lock-down (`me` exists but has no server-verified credential).
+function renderChatLocked(){
+  stopChatPoll();
+  const legacy = !!(me && !me.auth);
+  $("#chatLog").innerHTML = `
+    <div class="empty">
+      <div style="font-size:28px">🔒</div>
+      <p style="margin:10px 0 0">${legacy ? "Chat got a security upgrade — log in once more to unlock it." : "Log in to see the league chat."}</p>
+      <button class="btn" id="chatUnlockBtn" style="margin-top:16px">Log in</button>
+    </div>`;
+  $("#chatUnlockBtn").onclick = openLogin;
+  $("#view-chat .chatbar").style.display = "none";
+  $("#chatMsg").className = "msg"; $("#chatMsg").textContent = "";
+  chatRendered = false;
+}
+// Sync the chat view with the login state (called from refreshWhoami on every
+// login/logout). Locks or unlocks the panel; (re)starts polling only while
+// the Chat tab is actually open.
+function updateChatGate(){
+  if(canChat()){
+    $("#view-chat .chatbar").style.display = ""; // back to the CSS default (flex)
+    if(chatActive()){ loadChat(); startChatPoll(); }
+  } else {
+    stopChatPoll();
+    if(chatActive()) renderChatLocked();
+    else $("#view-chat .chatbar").style.display = "none";
+  }
+}
+// Credential rejected server-side (e.g. PIN re-claimed elsewhere): stop the
+// poll loop — never hammer a 401 every 3 s — and show the locked panel.
+// `me` is kept so betting/standings still work; re-login refreshes the credential.
+function handleChatAuthFail(){
+  if(me){ delete me.auth; localStorage.setItem("wc_player", JSON.stringify(me)); }
+  renderChatLocked();
+}
 
 function renderChat(msgs){
   const box = $("#chatLog");
@@ -1129,11 +1127,14 @@ function renderChat(msgs){
 // Full (re)load — fetches the latest 200 messages. Used on tab open and pull-to-refresh
 // so deletions and retention trimming are picked up. Sets the incremental cursor.
 async function loadChat(){
+  if(!canChat()) return renderChatLocked();
   let rows;
-  try{ rows = await rest("messages?select=*&order=created_at.desc&limit=200"); }
-  catch(e){ if(!chatRendered) $("#chatLog").innerHTML = `<div class="empty">Couldn't load: ${esc(e.message)}</div>`; return; }
-  rows = (rows || []).reverse(); // newest-200 came back desc → flip to ascending
-  CHAT = rows;
+  try{ rows = await rest("rpc/chat_fetch", {method:"POST", body:JSON.stringify({p_player:me.id, p_auth:me.auth})}); }
+  catch(e){
+    if(/invalid credentials/.test(String(e))) return handleChatAuthFail();
+    if(!chatRendered) $("#chatLog").innerHTML = `<div class="empty">Couldn't load: ${esc(e.message)}</div>`; return;
+  }
+  CHAT = rows = rows || []; // server returns the newest 200, already ascending
   chatSince = rows.length ? rows[rows.length-1].created_at : null;
   const box = $("#chatLog");
   renderChat(rows);
@@ -1144,10 +1145,11 @@ async function loadChat(){
 // Incremental poll — fetches ONLY messages newer than what we hold, so an idle poll
 // returns an empty array (near-zero egress). Appends and re-renders only when new.
 async function pollChat(){
+  if(!canChat()) return stopChatPoll();
   if(chatSince == null) return loadChat(); // nothing loaded yet this session
   let rows;
-  try{ rows = await rest(`messages?select=*&created_at=gt.${encodeURIComponent(chatSince)}&order=created_at.asc`); }
-  catch(e){ return; }
+  try{ rows = await rest("rpc/chat_fetch", {method:"POST", body:JSON.stringify({p_player:me.id, p_auth:me.auth, p_since:chatSince})}); }
+  catch(e){ if(/invalid credentials/.test(String(e))) handleChatAuthFail(); return; }
   if(!rows || !rows.length) return;
   const box = $("#chatLog");
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
@@ -1161,7 +1163,7 @@ async function pollChat(){
 async function sendChat(){
   const input = $("#chatInput"), msg = $("#chatMsg");
   msg.className = "msg"; msg.textContent = "";
-  if(!me){ openLogin(); return; }
+  if(!canChat()){ openLogin(); return; }
   const text = input.value.trim();
   if(!text) return;
   // Admin-only popup commands (non-admins fall through and post a normal message):
@@ -1177,11 +1179,11 @@ async function sendChat(){
       if(body.length > CHAT_MAX){ msg.className="msg err"; msg.textContent=`Too long (${CHAT_MAX} characters max).`; return; }
       $("#chatSend").disabled = true;
       try{
-        await rest("notices",{method:"POST", prefer:"return=minimal",
-          body:JSON.stringify({to_nick:nick.toLowerCase(), body})});
+        await rest("rpc/notices_send",{method:"POST", prefer:"return=minimal",
+          body:JSON.stringify({p_player:me.id, p_auth:me.auth, p_to_nick:nick, p_body:body})});
         input.value = "";
         msg.className="msg ok"; msg.textContent=`Popup sent to ${nick}.`;
-      }catch(e){ msg.className="msg err"; msg.textContent="Couldn't send: "+e.message; }
+      }catch(e){ msg.className="msg err"; msg.textContent="Couldn't send: "+errMsg(e); }
       finally{ $("#chatSend").disabled = false; input.focus(); }
       return;
     }
@@ -1189,19 +1191,23 @@ async function sendChat(){
   if(text.length > CHAT_MAX){ msg.className="msg err"; msg.textContent=`Too long (${CHAT_MAX} characters max).`; return; }
   $("#chatSend").disabled = true;
   try{
-    await rest("messages",{method:"POST", prefer:"return=minimal",
-      body:JSON.stringify({player_id:me.id, nickname:me.nickname, text})});
+    await rest("rpc/chat_post",{method:"POST", prefer:"return=minimal",
+      body:JSON.stringify({p_player:me.id, p_auth:me.auth, p_text:text})});
     input.value = "";
     await pollChat();
     const box = $("#chatLog"); box.scrollTop = box.scrollHeight;
-  }catch(e){ msg.className="msg err"; msg.textContent="Couldn't send: "+e.message; }
+  }catch(e){
+    if(/invalid credentials/.test(String(e))){ msg.className="msg err"; msg.textContent="Session expired — log in again."; }
+    else { msg.className="msg err"; msg.textContent="Couldn't send: "+e.message; }
+  }
   finally{ $("#chatSend").disabled = false; input.focus(); }
 }
 
 async function deleteChat(id){
   if(!(me && me.nickname.toLowerCase()===ADMIN_NICK)) return;
   try{
-    await rest(`messages?id=eq.${id}`, {method:"DELETE", prefer:"return=minimal"});
+    await rest("rpc/chat_delete", {method:"POST", prefer:"return=minimal",
+      body:JSON.stringify({p_player:me.id, p_auth:me.auth, p_id:id})});
     CHAT = CHAT.filter(m=>m.id!==id);
     renderChat(CHAT);
   }catch(e){ const msg=$("#chatMsg"); msg.className="msg err"; msg.textContent="Couldn't delete: "+e.message; }
@@ -1216,7 +1222,7 @@ submitOnEnter(["chatInput"], "chatSend");
 /* ───────────── pull to refresh (touch) ───────────── */
 async function refreshData(){
   try{ await loadMatches(); }catch(e){}
-  if(chatActive()) await loadChat();
+  if(chatActive()){ if(canChat()) await loadChat(); else renderChatLocked(); }
   else if($("#view-bet").classList.contains("active")) await renderBet();
   else await renderStandings();
 }
@@ -1254,10 +1260,17 @@ async function refreshData(){
 })();
 
 /* ───────────── boot ───────────── */
+// Sessions saved before the lockdown have no `.auth` credential, so no RPC
+// (bets, chat, popups) can verify them — ask for the PIN once, nick prefilled.
+if(me && !me.auth){
+  const oldNick = me.nickname;
+  me = null; localStorage.removeItem("wc_player");
+  openLogin();
+  $("#nick").value = oldNick;
+  $("#joinMsg").textContent = "Security upgrade — please log in once more.";
+}
 refreshWhoami();
-loadMatches()
-  .then(()=> checkNotices())   // popups first; checkNotices() hands off to bootDeadline()
-  .catch(()=> bootDeadline());
+loadMatches().then(()=> checkNotices()).catch(()=>{});
 renderBet();
 </script>
 </body>

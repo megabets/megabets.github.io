@@ -1,5 +1,9 @@
 -- World Cup 2026 Friends League — Supabase schema
--- Run this in Supabase -> SQL Editor (New query) once, on a fresh project.
+-- Fresh install: run this file, then notices_table.sql, then
+-- sql/01_lockdown_setup.sql (invites, throttle, all RPC functions).
+-- The policies/grants below already match the locked-down end state, so
+-- sql/02_lockdown_enforce.sql is only needed when MIGRATING a project that
+-- still has the old open policies (deploy order documented in that file).
 
 -- ── Tables ───────────────────────────────────────────────
 create table players (
@@ -41,10 +45,9 @@ create table bonuses (
   unique (player_id, kind)
 );
 
--- Who has paid the buy-in. Kept in its own table (not a column on players) so the
--- public anon key can toggle `paid` without an "update players" policy that would
--- also expose pin_hash. Hidden behind a 5-tap footer gesture; only the organizer
--- (nickname 'trololoic') edits it in the UI — a client-side deterrent, like PINs.
+-- Who has paid the buy-in. Admin-only in BOTH directions, enforced
+-- server-side: access goes through payments_fetch / payments_save
+-- (sql/01_lockdown_setup.sql), which verify the organizer's credential.
 create table payments (
   player_id uuid primary key references players(id) on delete cascade,
   paid boolean not null default false,
@@ -52,8 +55,10 @@ create table payments (
 );
 
 -- Group chat. `nickname` is denormalized so the poll doesn't join on players.
--- Anyone can post or delete (open RLS); the UI gates deleting to 'trololoic'
--- — a client-side deterrent, like the PIN and Paid-column gates.
+-- NOT publicly reachable: the anon key has no direct grants on this table.
+-- All reads/writes go through the chat_fetch / chat_post / chat_delete RPCs
+-- (sql/01_lockdown_setup.sql), which verify the caller's (player_id, pin_hash)
+-- server-side. Deleting is admin-only ('trololoic'), enforced in chat_delete.
 create table messages (
   id uuid primary key default gen_random_uuid(),
   player_id uuid references players(id) on delete cascade,
@@ -79,6 +84,10 @@ create trigger trim_messages_after_insert
   for each statement execute function trim_messages();
 
 -- ── Row Level Security ───────────────────────────────────
+-- The anon key is read-only, and only for genuinely public data. EVERY write
+-- — and every private read (own future bets, payments, popups, chat) — goes
+-- through the SECURITY DEFINER RPCs in sql/01_lockdown_setup.sql, which verify
+-- the caller's (player_id, pin_hash) credential server-side.
 alter table players enable row level security;
 alter table matches enable row level security;
 alter table predictions enable row level security;
@@ -86,32 +95,38 @@ alter table bonuses enable row level security;
 alter table payments enable row level security;
 alter table messages enable row level security;
 
--- Everyone can read (public league)
+-- Public reads (friends league): who plays, the fixtures, claimed bonuses.
 create policy "read players"     on players     for select using (true);
 create policy "read matches"     on matches     for select using (true);
-create policy "read predictions" on predictions for select using (true);
 create policy "read bonuses"     on bonuses     for select using (true);
-create policy "read payments"    on payments    for select using (true);
-create policy "read messages"    on messages    for select using (true);
 
--- Anyone can create a player and submit/update their own predictions
-create policy "insert players"   on players     for insert with check (true);
-create policy "insert preds"     on predictions for insert with check (true);
-create policy "update preds"     on predictions for update using (true);
--- Anyone can claim a bonus; unique(player_id,kind) caps it at one per kind.
-create policy "insert bonuses"   on bonuses     for insert with check (true);
--- Anyone can upsert a payment row; the UI gates editing to 'trololoic'.
-create policy "insert payments"  on payments    for insert with check (true);
-create policy "update payments"  on payments    for update using (true);
--- Anyone can post or delete a message; the UI gates deleting to 'trololoic'.
-create policy "insert messages"  on messages    for insert with check (true);
-create policy "delete messages"  on messages    for delete using (true);
+-- Others' bets stay hidden until the match kicks off (no peeking via dev
+-- tools); this is also exactly the set of rows that can score, so the
+-- standings query needs nothing else. Own future bets: rpc/preds_fetch.
+create policy "read kicked-off predictions" on predictions for select
+  using (exists (select 1 from matches m
+                  where m.id = match_id and m.kickoff <= now()));
 
--- A player's PIN may be set only while it is unclaimed (pin_hash is null).
--- Once set, the anon key can no longer change it — so a nickname can't be
--- re-PINned by someone else. (Client-side deterrent: the PIN is checked in the
--- browser; this policy just keeps a claimed PIN from being overwritten.)
-create policy "claim pin"        on players     for update using (pin_hash is null) with check (true);
+-- pin_hash is hidden via COLUMN-level grants (the row policy above stays —
+-- policies gate rows, grants gate columns; both apply). PIN verification
+-- happens server-side in login_player(); the browser never reads pin_hash,
+-- so a 4–6 digit PIN can't be brute-forced offline against a dumped hash.
+-- ⚠ Consequence: `players?select=*` (or an insert without `?select=col,...`
+-- under the default Prefer: return=representation) fails with 42501 —
+-- always list columns explicitly when touching players from the client.
+revoke select, insert, update, delete on table players from anon, authenticated;
+grant select (id, nickname, created_at) on table players to anon, authenticated;
+
+-- Direct writes are revoked everywhere — these tables have NO insert/update/
+-- delete policies on purpose. The RPC layer (sql/01) is the only write path:
+--   players      → register_player (invite-code-checked, one-time PIN claim)
+--   predictions  → preds_save      (own bets only, kicked-off matches refused)
+--   messages     → chat_post / chat_delete (no grants at all: chat is login-only)
+--   payments     → payments_save   (admin only; reads admin-only too)
+--   notices      → notices_send / notices_delete (admin), notices_fetch (recipient)
+revoke insert, update, delete on table predictions from anon, authenticated;
+revoke all on table messages from anon, authenticated;
+revoke all on table payments from anon, authenticated;
 
 -- ── Admin write model (SERVICE-KEY ONLY) ─────────────────
 -- Matches are written ONLY by GitHub Actions using the SERVICE key, which
@@ -125,75 +140,11 @@ create policy "claim pin"        on players     for update using (pin_hash is nu
 -- would let anyone holding the (public) anon key tamper with match scores.
 --   create policy "update matches" on matches for update using (true);  -- ⚠ insecure, leave off
 
--- ── Migration: add PINs to an EXISTING project ───────────
--- The block above is the fresh-install schema. If your project already has the
--- players table, run THIS in the Supabase SQL Editor instead (idempotent):
---   alter table players add column if not exists pin_hash text;
---   create policy "claim pin" on players for update using (pin_hash is null) with check (true);
--- Existing PIN-less players keep pin_hash = null and claim a PIN on next login.
-
--- ── Migration: add bonuses to an EXISTING project ────────
--- Idempotent — run in the Supabase SQL Editor if `bonuses` doesn't exist yet:
---   create table if not exists bonuses (
---     id uuid primary key default gen_random_uuid(),
---     player_id uuid references players(id) on delete cascade,
---     kind text not null,
---     created_at timestamptz default now(),
---     unique (player_id, kind)
---   );
---   alter table bonuses enable row level security;
---   drop policy if exists "read bonuses"   on bonuses;
---   drop policy if exists "insert bonuses" on bonuses;
---   create policy "read bonuses"   on bonuses for select using (true);
---   create policy "insert bonuses" on bonuses for insert with check (true);
-
--- ── Migration: add payments to an EXISTING project ───────
--- Idempotent — run in the Supabase SQL Editor if `payments` doesn't exist yet:
---   create table if not exists payments (
---     player_id uuid primary key references players(id) on delete cascade,
---     paid boolean not null default false,
---     updated_at timestamptz default now()
---   );
---   alter table payments enable row level security;
---   drop policy if exists "read payments"   on payments;
---   drop policy if exists "insert payments" on payments;
---   drop policy if exists "update payments" on payments;
---   create policy "read payments"   on payments for select using (true);
---   create policy "insert payments" on payments for insert with check (true);
---   create policy "update payments" on payments for update using (true);
-
--- ── Migration: add messages (chat) to an EXISTING project ─
--- Idempotent — run in the Supabase SQL Editor if `messages` doesn't exist yet:
---   create table if not exists messages (
---     id uuid primary key default gen_random_uuid(),
---     player_id uuid references players(id) on delete cascade,
---     nickname text not null,
---     text text not null,
---     created_at timestamptz default now()
---   );
---   create index if not exists messages_created_idx on messages (created_at);
---   alter table messages enable row level security;
---   drop policy if exists "read messages"   on messages;
---   drop policy if exists "insert messages" on messages;
---   drop policy if exists "delete messages" on messages;
---   create policy "read messages"   on messages for select using (true);
---   create policy "insert messages" on messages for insert with check (true);
---   create policy "delete messages" on messages for delete using (true);
-
--- ── Migration: add the 420-char cap + 500-message retention ─
--- If you already created `messages` (without these), run THIS once in the SQL Editor.
--- The length check fails if any existing row is >420 chars; trim those first if so.
---   alter table messages add constraint messages_text_len check (char_length(text) <= 420);
---   create or replace function trim_messages() returns trigger
---   language plpgsql as $$
---   begin
---     delete from messages where id in (
---       select id from messages order by created_at desc offset 500
---     );
---     return null;
---   end;
---   $$;
---   drop trigger if exists trim_messages_after_insert on messages;
---   create trigger trim_messages_after_insert
---     after insert on messages
---     for each statement execute function trim_messages();
+-- ── Migrating an EXISTING pre-lockdown project ───────────
+-- Don't re-run this file. Instead run, in order (details + rollback inside):
+--   1. sql/01_lockdown_setup.sql   (additive: invites, throttle, RPC functions)
+--   2. deploy the matching index.html
+--   3. sql/02_lockdown_enforce.sql (revokes the old open policies/grants)
+-- The pre-lockdown per-feature migration blocks that used to live at the
+-- bottom of this file (PINs, bonuses, payments, messages) are superseded —
+-- see git history if you ever need them.

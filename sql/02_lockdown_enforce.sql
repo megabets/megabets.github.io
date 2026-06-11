@@ -29,6 +29,7 @@ revoke insert, update, delete on table public.predictions from anon, authenticat
 drop policy if exists "read predictions" on public.predictions;
 drop policy if exists "insert preds"     on public.predictions;
 drop policy if exists "update preds"     on public.predictions;
+drop policy if exists "read kicked-off predictions" on public.predictions;  -- re-run safety
 create policy "read kicked-off predictions" on public.predictions for select
   using (exists (select 1 from public.matches m
                   where m.id = match_id and m.kickoff <= now()));
@@ -53,8 +54,14 @@ drop policy if exists notices_select on public.notices;
 drop policy if exists notices_insert on public.notices;
 drop policy if exists notices_delete on public.notices;
 
--- bonuses: feature unused by the app — close the open insert
-drop policy if exists "insert bonuses" on public.bonuses;
+-- bonuses: feature unused by the app — close the open insert. Wrapped because
+-- the table never made it to production ("if exists" on drop policy does NOT
+-- cover a missing TABLE, only a missing policy — it errors with 42P01).
+do $$ begin
+  if to_regclass('public.bonuses') is not null then
+    drop policy if exists "insert bonuses" on public.bonuses;
+  end if;
+end $$;
 
 notify pgrst, 'reload schema';
 
@@ -82,5 +89,4 @@ notify pgrst, 'reload schema';
 -- create policy notices_select     on public.notices     for select using (true);
 -- create policy notices_insert     on public.notices     for insert with check (true);
 -- create policy notices_delete     on public.notices     for delete using (true);
--- create policy "insert bonuses"   on public.bonuses     for insert with check (true);
 -- notify pgrst, 'reload schema';

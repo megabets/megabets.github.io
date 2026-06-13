@@ -497,8 +497,15 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const fmtKO = iso => new Date(iso).toLocaleString([], {weekday:"short", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"});
 const isLocked = m => new Date(m.kickoff) <= new Date(); // each match locks at its own kickoff
+// `status` from football-data.org is authoritative for finality. fullTime holds the
+// LIVE running score during play (IN_PLAY/PAUSED), so a present score does NOT mean
+// the match is over — only these states do. Everything that says "FT" or awards
+// points must check isFinal, never score-nullability alone.
+const FINAL_STATES = new Set(["FINISHED","AWARDED"]);
+const isFinal  = m => FINAL_STATES.has(m.status);
+const hasScore = m => m.home_score!=null && m.away_score!=null;
 function points(m, ph, pa){
-  if(m.home_score==null||m.away_score==null||ph==null||pa==null) return null;
+  if(!isFinal(m)||!hasScore(m)||ph==null||pa==null) return null;
   if(ph===m.home_score && pa===m.away_score) return 3;
   const ao=Math.sign(m.home_score-m.away_score), po=Math.sign(ph-pa);
   return ao===po ? 1 : 0;
@@ -941,7 +948,7 @@ const TOURNAMENT_TOTAL = 104;
 function updateMatchCount(){
   const el = $("#matchCount");
   if(!el) return;
-  const finished = MATCHES.filter(m => m.home_score != null && m.away_score != null).length;
+  const finished = MATCHES.filter(isFinal).length;
   const remaining = Math.max(0, TOURNAMENT_TOTAL - finished);
   el.textContent = `${remaining}/${TOURNAMENT_TOTAL} matches to go`;
 }
@@ -967,6 +974,21 @@ async function renderBet(){
   fillRoundTabs(tabs);
   paintBet(currentStage);
 }
+// Badge (FT / LIVE running score / locked / open) plus earned-points HTML for a bet
+// card's meta cell. Shared by paintBet and the live refresh so the FT-vs-LIVE rule —
+// FT and points only when the match is truly final — lives in exactly one place.
+function matchBadgeHtml(m){
+  const mLock = isLocked(m), final = isFinal(m);
+  const live = mLock && !final && hasScore(m); // kicked off, running score, not yet final
+  let tag = `<span class="tag open">open</span>`;
+  if(final) tag=`<span class="tag done">FT ${m.home_score}–${m.away_score}</span>`;
+  else if(live) tag=`<span class="tag live">LIVE ${m.home_score}–${m.away_score}</span>`;
+  else if(mLock) tag=`<span class="tag live">locked</span>`;
+  let ptsHtml="";
+  const p = MY_PREDS[m.id]||{};
+  if(final && p.pred_home!=null){ const pt=points(m,p.pred_home,p.pred_away); ptsHtml=`<span class="pts p${pt}">+${pt} pts</span>`; }
+  return tag+ptsHtml;
+}
 function paintBet(stage){
   const list=$("#matchList");
   const loggedOut = !me;
@@ -976,12 +998,6 @@ function paintBet(stage){
   list.innerHTML = ms.map(m=>{
     const p = MY_PREDS[m.id]||{};
     const mLock = isLocked(m);
-    const played = m.home_score!=null && m.away_score!=null;
-    let tag = `<span class="tag open">open</span>`;
-    if(played) tag=`<span class="tag done">FT ${m.home_score}–${m.away_score}</span>`;
-    else if(mLock) tag=`<span class="tag live">locked</span>`;
-    let ptsHtml="";
-    if(played && p.pred_home!=null){ const pt=points(m,p.pred_home,p.pred_away); ptsHtml=`<span class="pts p${pt}">+${pt} pts</span>`; }
     return `<div class="match ${mLock?'locked':''}" data-id="${m.id}">
       <div class="team">${esc(m.home_team)}</div>
       <div class="score">
@@ -990,7 +1006,7 @@ function paintBet(stage){
         <input type="number" min="0" max="30" class="pa" value="${p.pred_away??""}" ${mLock?'disabled':loggedOut?'readonly':''}/>
       </div>
       <div class="team away">${esc(m.away_team)}</div>
-      <div class="meta"><span>${fmtKO(m.kickoff)}</span><span>${tag}${ptsHtml}</span></div>
+      <div class="meta"><span>${fmtKO(m.kickoff)}</span><span>${matchBadgeHtml(m)}</span></div>
     </div>`;
   }).join("");
   $("#betActions").style.display = (allLocked || loggedOut) ? "none" : "block";
@@ -1048,6 +1064,32 @@ function applyLocks(){
   updateBetDirty();
 }
 setInterval(applyLocks, 10000);
+// Live-score auto-refresh. While a score view is open AND the tab is visible, refetch
+// matches every 60 s and update them. Like applyLocks, the bet list is patched in place
+// (only the badge cell, never the inputs or a full re-paint) so a user's unsaved score
+// edits survive. Standings is read-only, so a full re-render there is fine. We skip the
+// network call entirely unless something could actually change — i.e. a match has kicked
+// off but isn't final yet.
+function scoresActive(){
+  return $("#view-bet").classList.contains("active")
+      || $("#view-standings").classList.contains("active");
+}
+function refreshScoreBadges(){
+  $("#matchList").querySelectorAll(".match").forEach(el=>{
+    const m = MATCHES.find(x=> String(x.id)===el.dataset.id);
+    if(!m) return;
+    const cell = el.querySelector(".meta span:last-child");
+    if(cell) cell.innerHTML = matchBadgeHtml(m);
+  });
+}
+async function pollScores(){
+  if(document.visibilityState!=="visible" || !scoresActive()) return;
+  if(!MATCHES.some(m=> isLocked(m) && !isFinal(m))) return;
+  try{ await loadMatches(); }catch(e){ return; }
+  if($("#view-bet").classList.contains("active")){ refreshScoreBadges(); updateMatchCount(); }
+  else if($("#view-standings").classList.contains("active")) renderStandings();
+}
+setInterval(pollScores, 60000);
 // Testing helper: fill every open match in the current round with a random 0–4 score.
 function countEmptyMatches(){
   let n=0;
@@ -1171,11 +1213,12 @@ async function renderStandings(){
         .sort((a,b)=> new Date(a.m.kickoff)-new Date(b.m.kickoff));
       if(!list.length) return `<div class="nobets">No locked bets yet.</div>`;
       return `<div class="betlist">`+list.map(({pr,m})=>{
-        const played = m.home_score!=null && m.away_score!=null;
         const pt = points(m, pr.pred_home, pr.pred_away);
-        const res = played
+        const res = isFinal(m)
           ? `<span class="tag bl-res">FT ${m.home_score}–${m.away_score}</span>`
-          : `<span class="tag live bl-res">live</span>`;
+          : (isLocked(m) && hasScore(m))
+            ? `<span class="tag live bl-res">LIVE ${m.home_score}–${m.away_score}</span>`
+            : `<span class="tag live bl-res">live</span>`;
         const betCls = pt==null ? "" : `pts p${pt}`; // bet takes the colour of the points earned
         const ptsHtml = pt==null ? `<span class="pts p0">—</span>` : `<span class="pts p${pt}">+${pt}</span>`;
         return `<div class="betline">

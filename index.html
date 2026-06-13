@@ -338,7 +338,7 @@
   <div class="card modal">
     <button class="modal-close" id="loginClose" aria-label="Close">×</button>
     <h2>Pick your nickname</h2>
-    <p class="sub">One nickname per player, locked with a PIN. It's stored on this device so you stay logged in.</p>
+    <p class="sub">Returning? Enter your nickname &amp; PIN and tap <b>Log in</b>. New here? Tap <b>Register</b> with your invite code. One nickname per player, locked with a PIN and stored on this device so you stay logged in.</p>
     <label for="nick">Nickname</label>
     <div class="suggest-wrap">
       <input type="text" id="nick" maxlength="20" placeholder="e.g. ElTri_Nostradamus" autocomplete="off" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="nickSuggest" />
@@ -346,8 +346,9 @@
     </div>
     <label for="pin" style="margin-top:14px">PIN</label>
     <input type="password" id="pin" inputmode="numeric" maxlength="6" placeholder="4–6 digits" autocomplete="off" />
-    <div style="margin-top:14px">
-      <button class="btn" id="joinBtn">Join league</button>
+    <div style="margin-top:14px; display:flex; gap:10px">
+      <button class="btn" id="signinBtn" style="flex:2">Log in</button>
+      <button class="btn sec" id="joinBtn" style="flex:1">Register</button>
     </div>
     <div class="msg" id="joinMsg"></div>
     <p class="hint">Your nickname is locked with a PIN you choose the first time you join — after that, joining as that nickname needs the matching PIN. It's a light deterrent for a friends' league, not bank-grade security, so keep your PIN to yourself and don't reuse a sensitive one.</p>
@@ -807,7 +808,7 @@ chatInputEl.addEventListener("keydown", e=>{          // registered before submi
   else if(e.key === "Escape"){ hideAlertSuggest(); }
 });
 
-submitOnEnter(["nick","pin"], "joinBtn");                  // Login modal
+submitOnEnter(["nick","pin"], "signinBtn");               // Login modal — Enter = Log in (primary)
 submitOnEnter(["inviteCode","pinConfirm"], "confirmBtn");  // Confirm PIN modal
 // user chip dropdown
 $("#userChip").onclick = e=>{ e.stopPropagation(); $("#userMenu").classList.toggle("open"); };
@@ -838,35 +839,49 @@ function finishLogin(player, auth){
   if($("#view-bet").classList.contains("active")) renderBet();
   if($("#view-standings").classList.contains("active")) renderStandings();
 }
-$("#joinBtn").onclick = async ()=>{
+// Both login-modal buttons share these fields; only the new/unclaimed branch differs.
+// register=false (Log in) NEVER calls register_player — a logged-out player who mistypes
+// their nickname gets a "no account" message instead of silently creating a duplicate.
+async function attemptAuth(register){
   const nick = $("#nick").value.trim();
   const pin = $("#pin").value.trim();
   const msg = $("#joinMsg");
   if(nick.length<2){ msg.className="msg err"; msg.textContent="Pick at least 2 characters."; return; }
   if(!/^\d{4,6}$/.test(pin)){ msg.className="msg err"; msg.textContent="PIN must be 4–6 digits."; return; }
-  msg.className="msg"; msg.textContent="Joining…";
+  msg.className="msg"; msg.textContent = register ? "Joining…" : "Logging in…";
   try{
     const pin_hash = await hashPin(nick, pin);
     // verified server-side — pin_hash is no longer readable via the anon key
     const [r] = await rest("rpc/login_player", {method:"POST",
       body:JSON.stringify({p_nickname:nick, p_pin_hash:pin_hash})});
     if(r.status === "ok"){
-      // existing claimed player — log in immediately (no confirm)
+      // existing claimed player, correct PIN — both buttons log straight in
       finishLogin({id:r.id, nickname:r.nickname}, pin_hash);
       msg.className="msg ok"; msg.textContent=`You're in as ${r.nickname}.`;
       setTimeout(closeLogin, 700);
       return;
     }
     if(r.status === "wrong_pin"){ msg.className="msg err"; msg.textContent="Wrong PIN for that nickname."; return; }
-    // first-time PIN set (brand-new nickname OR legacy/unclaimed claim) — confirm before writing
-    pendingJoin = { nick, pin, pin_hash };
-    openConfirm();
+    // r.status is "new" (nickname not taken) or "unclaimed" (legacy, no PIN yet)
+    if(register){
+      // Register — first-time PIN set (brand-new nickname OR legacy claim); confirm before writing
+      pendingJoin = { nick, pin, pin_hash };
+      openConfirm();
+    }else{
+      // Log in — there's nothing to log into; never register. Point them to Register.
+      msg.className="msg err";
+      msg.textContent = (r.status === "unclaimed")
+        ? "This nickname hasn’t set a PIN yet — tap “Register” with your invite code."
+        : "No account with that nickname. New here? Tap “Register”.";
+    }
   }catch(e){
     const m = errMsg(e);
     msg.className="msg err";
     msg.textContent = /too many attempts/i.test(m) ? "Too many attempts — try again in a few minutes." : "Error: "+m;
   }
-};
+}
+$("#signinBtn").onclick = ()=> attemptAuth(false);
+$("#joinBtn").onclick   = ()=> attemptAuth(true);
 $("#switchBtn").onclick = ()=>{
   me=null; localStorage.removeItem("wc_player");
   $("#userMenu").classList.remove("open");

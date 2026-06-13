@@ -100,6 +100,8 @@
   .card + .card{margin-top:14px}
   h2{font-size:18px; margin:0 0 4px; font-weight:800; letter-spacing:-.01em}
   .sub{color:var(--muted); font-size:13.5px; margin:0 0 16px}
+  .bet-title{display:flex; align-items:baseline; gap:8px}
+  .matchcount{margin-left:auto; padding-right:4px; font-size:13px; font-weight:600; color:var(--muted); white-space:nowrap}
   label{display:block; font-size:12px; color:var(--muted); margin-bottom:6px; font-weight:600;
     text-transform:uppercase; letter-spacing:.05em}
   input[type=text],input[type=password],select,textarea{
@@ -140,7 +142,14 @@
   .msg{font-family:"Spline Sans Mono",monospace; font-size:13px; margin-top:12px; min-height:18px}
   .msg.ok{color:var(--accent)} .msg.err{color:var(--accent2)}
   /* match rows */
-  .roundsel{display:flex; gap:8px; align-items:center; margin-bottom:14px; flex-wrap:wrap}
+  .roundtabs{display:flex; gap:6px; overflow-x:auto; margin:0 0 14px; padding-bottom:2px;
+    scrollbar-width:none; -ms-overflow-style:none}
+  .roundtabs::-webkit-scrollbar{display:none}
+  .roundtabs button{flex:0 0 auto; background:var(--panel2); border:1px solid var(--line);
+    color:var(--muted); font-family:inherit; font-weight:600; font-size:13px; padding:8px 14px;
+    border-radius:9px; cursor:pointer; white-space:nowrap; transition:.15s}
+  .roundtabs button.active{background:#1f8a57; border-color:#1f8a57; color:#eafff2}
+  .roundtabs button:hover:not(.active){color:var(--ink); background:var(--line)}
   .match{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:10px;
     background:var(--panel2); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:10px}
   .match .team{font-weight:600; font-size:15px}
@@ -173,10 +182,39 @@
   td.num,th.num{text-align:right; font-family:"Spline Sans Mono",monospace}
   tr.me td{background:rgba(0,224,122,.06)}
   .rank{font-family:"Spline Sans Mono",monospace; color:var(--muted); width:36px}
-  .rank.top{color:var(--gold); font-weight:700}
+  .rank.r1{color:var(--gold); font-weight:700}
+  .rank.r2{color:#cdd6e0; font-weight:700}   /* silver */
+  .rank.r3{color:#cd7f32; font-weight:700}   /* bronze */
+  .rank.r4,.rank.r5{color:var(--accent); font-weight:700}
   .total{font-family:"Spline Sans Mono",monospace; font-weight:700; font-size:16px; color:var(--accent)}
+  /* expandable player rows → their locked bets */
+  tr.clickable{cursor:pointer}
+  tr.clickable:hover td{background:rgba(255,255,255,.025)}
+  tr.clickable.open td{background:rgba(255,255,255,.04)}
+  .caret{display:inline-block; transition:transform .15s ease; color:var(--muted); font-size:10px; margin-right:4px}
+  tr.clickable.open .caret{transform:rotate(90deg)}
+  tr.betsrow td{padding:0; background:var(--panel2)}
+  .betline{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 12px 8px 22px; border-bottom:1px solid rgba(255,255,255,.05)}
+  .betline:last-child{border-bottom:none}
+  .bl-match{display:flex; flex-direction:column; min-width:0}
+  .bl-stage{font-size:9.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted)}
+  .bl-teams{font-size:13px; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .bl-vs{color:var(--muted)}
+  .bl-right{display:flex; align-items:center; gap:8px; flex-shrink:0}
+  .bl-res{margin-right:6px}
+  .bl-bet{font-family:"Spline Sans Mono",monospace; font-weight:600; color:var(--ink); font-size:13px; min-width:34px; text-align:right}
+  .nobets{padding:10px 12px 10px 22px; color:var(--muted); font-size:13px}
   .loading{color:var(--muted); font-family:"Spline Sans Mono",monospace; font-size:13px; padding:8px 0}
   .empty{color:var(--muted); text-align:center; padding:30px 10px; font-size:14px}
+  /* prize pool banner */
+  .prizepool{background:linear-gradient(135deg,rgba(255,206,58,.14),rgba(255,206,58,.035));
+    border:1px solid rgba(255,206,58,.45); border-radius:var(--radius); padding:18px 16px;
+    text-align:center; margin-bottom:16px; box-shadow:0 0 28px rgba(255,206,58,.08)}
+  .prizepool .pp-label{font-size:11px; text-transform:uppercase; letter-spacing:.12em;
+    color:var(--gold); font-weight:700}
+  .prizepool .pp-amount{font-family:"Spline Sans Mono",monospace; font-size:38px; font-weight:800;
+    color:var(--gold); line-height:1.1; margin:6px 0 4px; text-shadow:0 0 18px rgba(255,206,58,.35)}
+  .prizepool .pp-sub{font-family:"Spline Sans Mono",monospace; font-size:12px; color:var(--muted)}
   .hint{font-size:12px; color:var(--muted); margin-top:8px; line-height:1.5}
   footer{margin-top:30px; text-align:center; color:var(--muted); font-size:12px;
     font-family:"Spline Sans Mono",monospace}
@@ -252,15 +290,12 @@
   <!-- BET -->
   <section class="view active" id="view-bet">
     <div class="card">
-      <h2>Place your bets</h2>
+      <h2 class="bet-title">Place your bets <span class="matchcount" id="matchCount"></span></h2>
       <div style="display:flex; gap:8px">
         <button class="btn sec" id="fillRandom" style="padding:8px 12px; font-size:13px">🎲 Auto-fill empty bets</button>
       </div>
       <p class="sub">Predict the final score of each match. Each match locks at its kickoff — you can change your bet until then.</p>
-      <div class="roundsel">
-        <label style="margin:0">Round</label>
-        <select id="roundSel" style="max-width:260px"></select>
-      </div>
+      <div class="roundtabs" id="roundTabs"></div>
       <div id="matchList"><div class="loading">Loading matches…</div></div>
       <div id="betActions" style="margin-top:14px; display:none">
         <button class="btn" id="saveBets">Save bets</button>
@@ -273,7 +308,7 @@
   <section class="view" id="view-standings">
     <div class="card">
       <h2>Ranking</h2>
-      <p class="sub">Live leaderboard. Tie-break: most exact-score hits.</p>
+      <p class="sub">Live leaderboard. Tie-break: most exact-score hits. Tap a player to see their locked bets.</p>
       <div id="standings"><div class="loading">Loading…</div></div>
     </div>
   </section>
@@ -399,7 +434,8 @@
 
     <div class="rules-section">Prize money</div>
     <ul class="rulelist">
-      <li>Depending on how many participants there are, we'll likely split the money among top 3.</li>
+      <li>Everyone pays €20 to enter — the whole pot (players × €20) goes back out as prizes.</li>
+      <li>Depending on how many participants there are, we'll likely split the money among top 5.</li>
     </ul>
   </div>
 </div>
@@ -861,13 +897,39 @@ async function loadMyPreds(){
   }
   rows.forEach(r=> MY_PREDS[r.match_id]={pred_home:r.pred_home,pred_away:r.pred_away});
 }
-function fillRoundSelect(sel){
+// Short worded labels for the round tab strip (full STAGES names are too long for tabs).
+const STAGE_TABS = {
+  MD1:"Round 1", MD2:"Round 2", MD3:"Round 3",
+  R32:"Last 32", R16:"Last 16", QF:"Quarters",
+  SF:"Semis", "3RD":"3rd", FINAL:"Final"
+};
+let currentStage = "";
+// Build the round tab strip from stages that currently have matches, keeping the
+// active round selected (or defaulting to the first available round).
+function fillRoundTabs(container){
   const present = STAGE_ORDER.filter(s=> MATCHES.some(m=>m.stage===s));
-  sel.innerHTML = present.map(s=>`<option value="${s}">${STAGES[s]}</option>`).join("")
-    || `<option value="">No matches yet</option>`;
+  if(!present.length){ container.innerHTML=""; currentStage=""; return; }
+  if(!present.includes(currentStage)) currentStage = present[0];
+  container.innerHTML = present.map(s=>
+    `<button type="button" data-stage="${s}" class="${s===currentStage?'active':''}">${STAGE_TABS[s]||s}</button>`
+  ).join("");
 }
 
 /* ───────────── bet view ───────────── */
+// Full WC2026 fixture count: 72 group-stage + 32 direct-elimination = 104.
+// We use a fixed total (not MATCHES.length) because seed_matches.py leaves out
+// knockout slots whose teams are still TBD, so they're absent from MATCHES until
+// drawn — but they must still count toward the tournament total and "to go" figure.
+const TOURNAMENT_TOTAL = 104;
+// Tournament-wide counter shown next to the bet-screen title: matches not yet
+// finished (no final score) out of all fixtures, knockout rounds included.
+function updateMatchCount(){
+  const el = $("#matchCount");
+  if(!el) return;
+  const finished = MATCHES.filter(m => m.home_score != null && m.away_score != null).length;
+  const remaining = Math.max(0, TOURNAMENT_TOTAL - finished);
+  el.textContent = `${remaining}/${TOURNAMENT_TOTAL} matches to go`;
+}
 async function renderBet(){
   const list = $("#matchList");
   list.innerHTML=`<div class="loading">Loading…</div>`;
@@ -875,9 +937,20 @@ async function renderBet(){
     if(!MATCHES.length) await loadMatches();
     await loadMyPreds();
   }catch(e){ list.innerHTML=`<div class="empty">Couldn't load matches: ${esc(e.message)}</div>`; return; }
-  const sel=$("#roundSel");
-  if(!sel.dataset.init){ fillRoundSelect(sel); sel.dataset.init="1"; sel.onchange=()=>paintBet(sel.value); }
-  paintBet(sel.value || sel.options[0]?.value);
+  updateMatchCount();
+  const tabs=$("#roundTabs");
+  if(!tabs.dataset.init){
+    tabs.dataset.init="1";
+    tabs.addEventListener("click", e=>{
+      const b=e.target.closest("button[data-stage]");
+      if(!b || b.classList.contains("active")) return;
+      currentStage=b.dataset.stage;
+      tabs.querySelectorAll("button").forEach(x=>x.classList.toggle("active", x===b));
+      paintBet(currentStage);
+    });
+  }
+  fillRoundTabs(tabs);
+  paintBet(currentStage);
 }
 function paintBet(stage){
   const list=$("#matchList");
@@ -1007,7 +1080,7 @@ $("#saveBets").onclick = async ()=>{
     // credential-checked upsert; the server also skips kicked-off matches
     const saved = await rest("rpc/preds_save", {method:"POST",
       body:JSON.stringify({p_player:me.id, p_auth:me.auth, p_preds:rows})});
-    await loadMyPreds(); paintBet($("#roundSel").value);
+    await loadMyPreds(); paintBet(currentStage);
     msg.className="msg ok"; msg.textContent=`Saved ${saved} prediction(s).`;
   }catch(e){
     if(/invalid credentials/.test(String(e))){ msg.textContent=""; handleAuthFail(); return; }
@@ -1035,7 +1108,9 @@ async function renderStandings(){
     if(!MATCHES.length) await loadMatches();
     const mById={}; MATCHES.forEach(m=>mById[m.id]=m);
     const tally={}; players.forEach(p=> tally[p.id]={nick:p.nickname, pts:0, exact:0, played:0});
+    const predsByPlayer={}; // player_id -> [pred,...] (kicked-off rows only, per RLS)
     preds.forEach(pr=>{
+      (predsByPlayer[pr.player_id] ||= []).push(pr);
       const m=mById[pr.match_id]; if(!m) return;
       const pt=points(m, pr.pred_home, pr.pred_away); if(pt==null) return;
       const t=tally[pr.player_id]; if(!t) return;
@@ -1048,19 +1123,64 @@ async function renderStandings(){
     const paidCell = r => !showPaid ? "" : (isAdmin
       ? `<td class="num"><input type="checkbox" class="paidbox" data-pid="${r.id}" ${paidById[r.id]?'checked':''}></td>`
       : `<td class="num">${paidById[r.id]?'✓':'–'}</td>`);
-    box.innerHTML=`<table><thead><tr>
-      <th class="rank">#</th><th>Player</th><th class="num">Exact</th><th class="num">Played</th><th class="num">Pts</th>${paidHead}
+    const pool = players.length * 20;
+    const prizeBanner = `<div class="prizepool">
+      <div class="pp-label">💰 Total prize pool</div>
+      <div class="pp-amount" id="prizeAmount">€0</div>
+      <div class="pp-sub">${players.length} player${players.length===1?'':'s'} · €20 each</div>
+    </div>`;
+    box.innerHTML=prizeBanner+`<table><thead><tr>
+      <th class="rank">#</th><th>Player</th>${paidHead}<th class="num">Exact</th><th class="num">Played</th><th class="num">Pts</th>
     </tr></thead><tbody>${rows.map((r,i)=>`
-      <tr class="${me&&me.id===r.id?'me':''}">
-        <td class="rank ${i===0?'top':''}">${i+1}</td>
-        <td>${esc(r.nick)}${me&&me.id===r.id?' ·you':''}</td>
+      <tr class="clickable ${me&&me.id===r.id?'me':''}" data-pid="${r.id}">
+        <td class="rank ${i<5 ? 'r'+(i+1) : ''}">${i+1}</td>
+        <td><span class="caret">▸</span>${esc(r.nick)}${me&&me.id===r.id?' ·you':''}</td>${paidCell(r)}
         <td class="num">${r.exact}</td>
         <td class="num">${r.played}</td>
-        <td class="num"><span class="total">${r.pts}</span></td>${paidCell(r)}
+        <td class="num"><span class="total">${r.pts}</span></td>
       </tr>`).join("")}</tbody></table>${
       showPaid && isAdmin
         ? `<div style="margin-top:14px"><button class="btn" id="savePaid">Save paid</button><div class="msg" id="paidMsg"></div></div>`
         : ""}`;
+    const prizeEl = $("#prizeAmount");
+    if(prizeEl){ const start=performance.now(), dur=800;
+      (function tick(t){ const p=Math.min(1,(t-start)/dur), e=1-Math.pow(1-p,3);
+        prizeEl.textContent = "€" + Math.round(pool*e).toLocaleString();
+        if(p<1) requestAnimationFrame(tick); })(start); }
+    // Tap a player row to unfold all their locked bets (bet first, then result + points).
+    const colCount = showPaid ? 6 : 5;
+    const playerBetsHtml = pid => {
+      const list = (predsByPlayer[pid]||[])
+        .map(pr=>({pr, m:mById[pr.match_id]}))
+        .filter(x=>x.m)
+        .sort((a,b)=> new Date(a.m.kickoff)-new Date(b.m.kickoff));
+      if(!list.length) return `<div class="nobets">No locked bets yet.</div>`;
+      return `<div class="betlist">`+list.map(({pr,m})=>{
+        const played = m.home_score!=null && m.away_score!=null;
+        const pt = points(m, pr.pred_home, pr.pred_away);
+        const res = played
+          ? `<span class="tag bl-res">FT ${m.home_score}–${m.away_score}</span>`
+          : `<span class="tag live bl-res">live</span>`;
+        const betCls = pt==null ? "" : `pts p${pt}`; // bet takes the colour of the points earned
+        const ptsHtml = pt==null ? `<span class="pts p0">—</span>` : `<span class="pts p${pt}">+${pt}</span>`;
+        return `<div class="betline">
+          <div class="bl-match">
+            <span class="bl-stage">${esc(STAGES[m.stage]||m.stage)}</span>
+            <span class="bl-teams">${esc(m.home_team)} <span class="bl-vs">v</span> ${esc(m.away_team)}</span>
+          </div>
+          <div class="bl-right">${res}<span class="bl-bet ${betCls}">${pr.pred_home}–${pr.pred_away}</span>${ptsHtml}</div>
+        </div>`;
+      }).join("")+`</div>`;
+    };
+    box.querySelectorAll("tr.clickable").forEach(tr=>{
+      tr.onclick = e=>{
+        if(e.target.closest(".paidbox")) return; // don't toggle when the admin ticks Paid
+        const next = tr.nextElementSibling;
+        if(next && next.classList.contains("betsrow")){ next.remove(); tr.classList.remove("open"); return; }
+        tr.classList.add("open");
+        tr.insertAdjacentHTML("afterend", `<tr class="betsrow"><td colspan="${colCount}">${playerBetsHtml(tr.dataset.pid)}</td></tr>`);
+      };
+    });
     if(showPaid && isAdmin){
       $("#savePaid").onclick = async ()=>{
         const msg=$("#paidMsg"); msg.className="msg"; msg.textContent="Saving…";

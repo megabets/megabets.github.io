@@ -184,6 +184,24 @@
     margin-top:8px; font-family:"Spline Sans Mono",monospace; font-size:11.5px; color:var(--muted)}
   .match.locked{opacity:.62}
   .match.locked input{background:var(--input-locked); cursor:not-allowed}
+  /* per-match "See bets" dropdown — every player's prediction for a locked match */
+  .betsbar{grid-column:1/-1; display:flex; align-items:center; gap:5px; margin-top:8px;
+    background:none; border:none; padding:6px 0 0; cursor:pointer; text-align:left;
+    font-family:"Spline Sans Mono",monospace; font-size:11.5px; color:var(--muted)}
+  .betsbar:hover{color:var(--ink)}
+  .betsbar.open .caret{transform:rotate(90deg)}
+  .matchbets{background:var(--panel2); border:1px solid var(--line); border-top:none;
+    border-radius:0 0 12px 12px; margin:-10px 0 10px; padding:2px 0}
+  .mb-line{display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:7px 14px; border-bottom:1px solid var(--hairline); font-size:13px}
+  .mb-line:last-child{border-bottom:none}
+  .mb-line.me{background:rgba(0,224,122,.06)}
+  .mb-line.me .mb-nick{font-weight:700}
+  .mb-nick{color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0}
+  .mb-right{display:flex; align-items:center; gap:8px; flex-shrink:0}
+  .mb-bet{font-family:"Spline Sans Mono",monospace; font-weight:600; color:var(--ink);
+    font-size:13px; min-width:34px; text-align:right}
+  .mb-none{color:var(--muted); font-weight:400}
   /* logged-out: tapping a score square turns both squares of that match red, not the usual green */
   .match .score:focus-within input[readonly]{border-color:var(--accent2)}
   #loginToast{position:fixed; left:50%; transform:translateX(-50%); bottom:20px; z-index:60;
@@ -518,6 +536,8 @@ let pendingJoin = null; // first-time PIN set awaiting confirmation
 let ALL_NICKS = null;   // cached nickname list for login suggestions (lazy-loaded)
 let MATCHES = [];   // all matches
 let MY_PREDS = {};  // match_id -> {pred_home,pred_away}
+let ALL_PLAYERS = [];     // [{id, nickname}, ...] — for the per-match "all bets" dropdown
+let PREDS_BY_MATCH = {};  // match_id -> { player_id -> {pred_home,pred_away} } (locked matches only, per RLS)
 const ADMIN_NICK = "trololoic"; // organizer who may edit the hidden "Paid" column
 let showPaid = false; // revealed for this session by tapping the footer 5×
 let CHAT = [];            // loaded chat messages, ascending by created_at
@@ -968,6 +988,18 @@ async function loadMyPreds(){
   }
   rows.forEach(r=> MY_PREDS[r.match_id]={pred_home:r.pred_home,pred_away:r.pred_away});
 }
+// Everyone's locked bets, grouped by match, for the per-match "See bets" dropdown.
+// The public predictions SELECT is RLS-restricted to kicked-off matches, so this
+// only ever exposes bets that are already locked — exactly what we want to show.
+async function loadAllBets(){
+  const [players, preds] = await Promise.all([
+    rest("players?select=id,nickname"),
+    rest("predictions?select=player_id,match_id,pred_home,pred_away")
+  ]);
+  ALL_PLAYERS = players || [];
+  PREDS_BY_MATCH = {};
+  (preds||[]).forEach(pr => ((PREDS_BY_MATCH[pr.match_id] ||= {})[pr.player_id] = pr));
+}
 // Short worded labels for the round tab strip (full STAGES names are too long for tabs).
 const STAGE_TABS = {
   MD1:"Round 1", MD2:"Round 2", MD3:"Round 3",
@@ -1008,6 +1040,9 @@ async function renderBet(){
     if(!MATCHES.length) await loadMatches();
     await loadMyPreds();
   }catch(e){ list.innerHTML=`<div class="empty">Couldn't load matches: ${esc(e.message)}</div>`; return; }
+  // Everyone's locked bets for the per-match dropdown — non-fatal: a failure here
+  // just leaves the dropdowns empty rather than breaking the betting UI.
+  try{ await loadAllBets(); }catch(e){ /* dropdowns disabled */ }
   updateMatchCount();
   const tabs=$("#roundTabs");
   if(!tabs.dataset.init){
@@ -1038,6 +1073,32 @@ function matchBadgeHtml(m){
   if(final && p.pred_home!=null){ const pt=points(m,p.pred_home,p.pred_away); ptsHtml=`<span class="pts p${pt}">+${pt} pts</span>`; }
   return tag+ptsHtml;
 }
+// Every player's prediction for one (locked) match. Bettors first — ranked by
+// points once the match is final, then alphabetical — with non-bettors ("— no
+// bet") last. Mirrors the standings player→bets list, inverted to match→players.
+function matchBetsHtml(matchId){
+  const m = MATCHES.find(x=> String(x.id)===String(matchId));
+  const byPlayer = PREDS_BY_MATCH[matchId] || {};
+  const final = m && isFinal(m);
+  if(!ALL_PLAYERS.length) return `<div class="nobets">No players yet.</div>`;
+  const entries = ALL_PLAYERS.map(pl=>{
+    const pr = byPlayer[pl.id];
+    const pt = (pr && m) ? points(m, pr.pred_home, pr.pred_away) : null;
+    return {id:pl.id, nick:pl.nickname, pr, pt};
+  }).sort((a,b)=>{
+    if(!!a.pr !== !!b.pr) return a.pr ? -1 : 1;            // bettors before non-bettors
+    if(final && a.pr && b.pr && b.pt!==a.pt) return b.pt-a.pt; // then by points earned
+    return a.nick.localeCompare(b.nick);                  // then alphabetical
+  });
+  return entries.map(e=>{
+    const mine = me && me.id===e.id ? " me" : "";
+    if(!e.pr) return `<div class="mb-line${mine}"><span class="mb-nick">${esc(e.nick)}</span><span class="mb-bet mb-none">— no bet</span></div>`;
+    const betCls = e.pt==null ? "" : `pts p${e.pt}`;
+    const ptsHtml = final ? `<span class="pts p${e.pt}">+${e.pt}</span>` : "";
+    return `<div class="mb-line${mine}"><span class="mb-nick">${esc(e.nick)}</span>
+      <span class="mb-right"><span class="mb-bet ${betCls}">${e.pr.pred_home}–${e.pr.pred_away}</span>${ptsHtml}</span></div>`;
+  }).join("");
+}
 function paintBet(stage){
   const list=$("#matchList");
   const loggedOut = !me;
@@ -1056,6 +1117,7 @@ function paintBet(stage){
       </div>
       <div class="team away">${esc(m.away_team)}</div>
       <div class="meta"><span>${fmtKO(m.kickoff)}</span><span>${matchBadgeHtml(m)}</span></div>
+      ${mLock ? `<button type="button" class="betsbar"><span class="caret">▸</span> See bets (${Object.keys(PREDS_BY_MATCH[m.id]||{}).length})</button>` : ``}
     </div>`;
   }).join("");
   $("#betActions").style.display = (allLocked || loggedOut) ? "none" : "block";
@@ -1064,6 +1126,15 @@ function paintBet(stage){
     list.addEventListener("input", updateBetDirty);
     list.addEventListener("focusin", e=>{
       if(!me && e.target.matches(".ph,.pa")) showLoginToast();
+    });
+    // Tap a locked match's "See bets" bar to unfold every player's prediction for it.
+    list.addEventListener("click", e=>{
+      const bar = e.target.closest(".betsbar"); if(!bar) return;
+      const match = bar.closest(".match");
+      const next = match.nextElementSibling;
+      if(next && next.classList.contains("matchbets")){ next.remove(); bar.classList.remove("open"); return; }
+      bar.classList.add("open");
+      match.insertAdjacentHTML("afterend", `<div class="matchbets">${matchBetsHtml(match.dataset.id)}</div>`);
     });
     list.dataset.dirtyInit="1";
   }

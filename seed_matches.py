@@ -102,9 +102,30 @@ def main():
         counts[r["stage"]] = counts.get(r["stage"], 0) + 1
     for s in sorted(counts):
         print(f"  {s}: {counts[s]}")
-    # push in chunks of 50
-    for i in range(0, len(rows), 50):
-        push(rows[i:i+50])
+
+    # Flag finished matches the source hasn't given a score for (e.g. a persistent
+    # data gap). These need a manual set_result.py; surface them in the log.
+    for r in rows:
+        if r["status"] in ("FINISHED", "AWARDED") and (r["home_score"] is None or r["away_score"] is None):
+            print(f"WARN: {r['home_team']} v {r['away_team']} is {r['status']} but has no score "
+                  f"(id {r['id']}); leaving any existing score untouched.")
+
+    # Only write scores when the source actually has both — otherwise a source gap
+    # (or a manual correction) would get nulled out on every run. merge-duplicates
+    # only updates the columns present in the payload, so dropping the score keys
+    # leaves existing home_score/away_score intact on conflict (and new rows still
+    # default to NULL, which is correct for unplayed matches).
+    with_score, without_score = [], []
+    for r in rows:
+        if r["home_score"] is not None and r["away_score"] is not None:
+            with_score.append(r)
+        else:
+            without_score.append({k: v for k, v in r.items() if k not in ("home_score", "away_score")})
+
+    # push each group in chunks of 50
+    for group in (with_score, without_score):
+        for i in range(0, len(group), 50):
+            push(group[i:i+50])
     print("Done.")
 
 if __name__ == "__main__":

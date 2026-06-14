@@ -1229,12 +1229,12 @@ function matchBadgeHtml(m){
   const mLock = isLocked(m), final = isFinal(m);
   const live = mLock && !final && hasScore(m); // kicked off, running score, not yet final
   let tag = `<span class="tag open">open</span>`;
-  if(final) tag=`<span class="tag done">FT ${m.home_score}–${m.away_score}</span>`;
+  if(final) tag=hasScore(m) ? `<span class="tag done">FT ${m.home_score}–${m.away_score}</span>` : `<span class="tag done">FT</span>`;
   else if(live) tag=`<span class="tag live">LIVE ${m.home_score}–${m.away_score}</span>`;
   else if(mLock) tag=`<span class="tag live">locked</span>`;
   let ptsHtml="";
   const p = MY_PREDS[m.id]||{};
-  if(final && p.pred_home!=null){ const pt=points(m,p.pred_home,p.pred_away); ptsHtml=`<span class="pts p${pt}">+${pt} pts</span>`; }
+  if(final && p.pred_home!=null){ const pt=points(m,p.pred_home,p.pred_away); if(pt!=null) ptsHtml=`<span class="pts p${pt}">+${pt} pts</span>`; }
   return tag+ptsHtml;
 }
 // Every player's prediction for one (locked) match. Bettors first — ranked by
@@ -1499,7 +1499,7 @@ async function renderStandings(){
       return `<div class="betlist">`+list.map(({pr,m})=>{
         const pt = points(m, pr.pred_home, pr.pred_away);
         const res = isFinal(m)
-          ? `<span class="tag bl-res">FT ${m.home_score}–${m.away_score}</span>`
+          ? (hasScore(m) ? `<span class="tag bl-res">FT ${m.home_score}–${m.away_score}</span>` : `<span class="tag bl-res">FT</span>`)
           : (isLocked(m) && hasScore(m))
             ? `<span class="tag live bl-res">LIVE ${m.home_score}–${m.away_score}</span>`
             : `<span class="tag live bl-res">live</span>`;

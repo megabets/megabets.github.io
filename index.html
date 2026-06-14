@@ -691,6 +691,7 @@ let ALL_PLAYERS = [];     // [{id, nickname}, ...] — for the per-match "all be
 let PREDS_BY_MATCH = {};  // match_id -> { player_id -> {pred_home,pred_away} } (locked matches only, per RLS)
 const ADMIN_NICK = "trololoic"; // organizer who may edit the hidden "Paid" column
 let showPaid = false; // revealed for this session by tapping the footer 5×
+let showAllBets = false; // admin: same 5-tap reveals every player's bets, incl. non-locked
 let CHAT = [];            // loaded chat messages, ascending by created_at
 let chatTimer = null;     // 3s poll interval, runs only while the Chat tab is open
 let chatRendered = false; // has the log been painted at least once this session?
@@ -1056,7 +1057,9 @@ $("#themeBtn").onclick = ()=>{
 $("#rulesBtn").onclick = ()=> $("#rulesModal").classList.add("open");
 $("#rulesClose").onclick = ()=> $("#rulesModal").classList.remove("open");
 $("#rulesModal").onclick = e=>{ if(e.target===$("#rulesModal")) $("#rulesModal").classList.remove("open"); };
-// secret 5-tap footer gesture reveals the hidden "Paid" column (session only)
+// secret 5-tap footer gesture reveals the admin-only views (session only): the
+// hidden "Paid" column and every player's bets incl. non-locked matches. Both
+// only actually surface data for the organizer (server-enforced via auth_admin).
 (function(){
   let taps = 0, last = 0;
   $("footer").addEventListener("click", (e)=>{
@@ -1064,9 +1067,10 @@ $("#rulesModal").onclick = e=>{ if(e.target===$("#rulesModal")) $("#rulesModal")
     const now = Date.now();
     taps = (now - last < 1500) ? taps + 1 : 1;
     last = now;
-    if(taps >= 5 && !showPaid){
-      showPaid = true;
+    if(taps >= 5 && !showAllBets){
+      showPaid = true; showAllBets = true;
       if($("#view-standings").classList.contains("active")) renderStandings();
+      else if($("#view-bet").classList.contains("active")) renderBet();
     }
   });
 })();
@@ -1152,13 +1156,25 @@ async function loadMyPreds(){
   }
   rows.forEach(r=> MY_PREDS[r.match_id]={pred_home:r.pred_home,pred_away:r.pred_away});
 }
-// Everyone's locked bets, grouped by match, for the per-match "See bets" dropdown.
-// The public predictions SELECT is RLS-restricted to kicked-off matches, so this
-// only ever exposes bets that are already locked — exactly what we want to show.
+// Every player's bets, shape {player_id,match_id,pred_home,pred_away}. Normally the
+// public predictions SELECT (RLS-restricted to kicked-off matches) — so it only
+// exposes already-locked bets. When the admin reveals all-bets (5-tap), pull EVERY
+// bet incl. non-locked ones via the admin RPC; if that fails (not deployed / not the
+// organizer → 403) we silently fall back to the locked-only public view.
+async function fetchAllPreds(){
+  if(showAllBets && me && me.auth && isAdmin()){
+    try{
+      return await rest("rpc/preds_fetch_all", {method:"POST",
+        body:JSON.stringify({p_player:me.id, p_auth:me.auth})}) || [];
+    }catch(e){ /* fall through to the public locked-only select */ }
+  }
+  return await rest("predictions?select=player_id,match_id,pred_home,pred_away") || [];
+}
+// Everyone's bets, grouped by match, for the per-match "See bets" dropdown.
 async function loadAllBets(){
   const [players, preds] = await Promise.all([
     rest("players?select=id,nickname"),
-    rest("predictions?select=player_id,match_id,pred_home,pred_away")
+    fetchAllPreds()
   ]);
   ALL_PLAYERS = players || [];
   PREDS_BY_MATCH = {};
@@ -1281,7 +1297,7 @@ function paintBet(stage){
       </div>
       <div class="team away">${esc(m.away_team)}</div>
       <div class="meta"><span>${fmtKO(m.kickoff)}</span><span>${matchBadgeHtml(m)}</span></div>
-      ${mLock ? `<button type="button" class="betsbar"><span class="caret">▸</span> See bets (${Object.keys(PREDS_BY_MATCH[m.id]||{}).length})</button>` : ``}
+      ${(mLock || (showAllBets && isAdmin())) ? `<button type="button" class="betsbar"><span class="caret">▸</span> See bets (${Object.keys(PREDS_BY_MATCH[m.id]||{}).length})</button>` : ``}
     </div>`;
   }).join("");
   $("#betActions").style.display = (allLocked || loggedOut) ? "none" : "block";
@@ -1439,7 +1455,7 @@ async function renderStandings(){
     const isAdmin = !!(me && me.auth && me.nickname.toLowerCase()===ADMIN_NICK);
     const [players, preds, pays] = await Promise.all([
       rest("players?select=id,nickname"),
-      rest("predictions?select=player_id,match_id,pred_home,pred_away"),
+      fetchAllPreds(),
       (showPaid && isAdmin)
         ? rest("rpc/payments_fetch", {method:"POST", body:JSON.stringify({p_player:me.id, p_auth:me.auth})}).catch(()=>[])
         : Promise.resolve([])
@@ -1449,7 +1465,7 @@ async function renderStandings(){
     if(!MATCHES.length) await loadMatches();
     const mById={}; MATCHES.forEach(m=>mById[m.id]=m);
     const tally={}; players.forEach(p=> tally[p.id]={nick:p.nickname, pts:0, exact:0, played:0});
-    const predsByPlayer={}; // player_id -> [pred,...] (kicked-off rows only, per RLS)
+    const predsByPlayer={}; // player_id -> [pred,...] (kicked-off rows per RLS; ALL rows when admin reveals)
     preds.forEach(pr=>{
       (predsByPlayer[pr.player_id] ||= []).push(pr);
       const m=mById[pr.match_id]; if(!m) return;
@@ -1495,14 +1511,14 @@ async function renderStandings(){
         .map(pr=>({pr, m:mById[pr.match_id]}))
         .filter(x=>x.m)
         .sort((a,b)=> new Date(a.m.kickoff)-new Date(b.m.kickoff));
-      if(!list.length) return `<div class="nobets">No locked bets yet.</div>`;
+      if(!list.length) return `<div class="nobets">No bets yet.</div>`;
       return `<div class="betlist">`+list.map(({pr,m})=>{
         const pt = points(m, pr.pred_home, pr.pred_away);
         const res = isFinal(m)
           ? (hasScore(m) ? `<span class="tag bl-res">FT ${m.home_score}–${m.away_score}</span>` : `<span class="tag bl-res">FT</span>`)
-          : (isLocked(m) && hasScore(m))
-            ? `<span class="tag live bl-res">LIVE ${m.home_score}–${m.away_score}</span>`
-            : `<span class="tag live bl-res">live</span>`;
+          : !isLocked(m) ? `<span class="tag open bl-res">soon</span>`            // not yet kicked off (admin-revealed)
+          : hasScore(m) ? `<span class="tag live bl-res">LIVE ${m.home_score}–${m.away_score}</span>`
+          : `<span class="tag live bl-res">live</span>`;
         const betCls = pt==null ? "" : `pts p${pt}`; // bet takes the colour of the points earned
         const ptsHtml = pt==null ? `<span class="pts p0">—</span>` : `<span class="pts p${pt}">+${pt}</span>`;
         return `<div class="betline">

@@ -680,6 +680,39 @@ const rest = (path, opts={}) => fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
 }).then(async r=>{ const t=await r.text(); if(!r.ok) throw new Error(t||r.status); return t?JSON.parse(t):null; });
 // Human message from a PostgREST error body ({"code":"PTxxx","message":...}).
 const errMsg = e => { try{ return JSON.parse(e.message).message || e.message; }catch(_){ return e.message; } };
+// Fetch ALL rows for a PostgREST path/RPC, paging past the project "Max rows" cap
+// (default 1000) via Range headers. A query must carry a stable &order=... so the
+// pages line up. Termination:
+//   • HTTP 200 → the window reached the last row (done); 206 → a partial page (more
+//     rows lie beyond the window, fetch the next one). A 206 only ever appears when
+//     more rows exist, so the next offset is always valid — we never request an
+//     out-of-range page (which would 416).
+//   • Content-Range start guard: if the server returns a window that doesn't start
+//     where we asked, it isn't honoring the offset (some set-returning RPCs cap at
+//     Max rows and ignore Range). We stop instead of looping forever on duplicates.
+// Works for GET selects and POST rpc calls alike (opts.body is preserved).
+async function restAll(path, opts={}, page=1000){
+  const out=[];
+  for(let from=0;;from+=page){
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+      ...opts,
+      headers:{
+        apikey:SUPABASE_ANON, Authorization:`Bearer ${SUPABASE_ANON}`,
+        "Content-Type":"application/json", Prefer: opts.prefer || "return=representation",
+        "Range-Unit":"items", Range:`${from}-${from+page-1}`,
+        ...(opts.headers||{})
+      }
+    });
+    const txt = await res.text();
+    if(!res.ok) throw new Error(txt||res.status);     // 206 counts as ok
+    const start = Number((/^(\d+)-/.exec(res.headers.get("content-range")||"")||[])[1]);
+    if(from>0 && Number.isFinite(start) && start!==from) break; // offset ignored → stop (avoid dup/loop)
+    const chunk = txt ? JSON.parse(txt) : [];
+    out.push(...chunk);
+    if(res.status!==206 || chunk.length<page) break;  // 200 = full set delivered; short page = last
+  }
+  return out;
+}
 
 /* ───────────── state ───────────── */
 let me = JSON.parse(localStorage.getItem("wc_player") || "null"); // {id,nickname,auth} — auth = pin_hash, the chat-RPC credential
@@ -1164,11 +1197,15 @@ async function loadMyPreds(){
 async function fetchAllPreds(){
   if(showAllBets && me && me.auth && isAdmin()){
     try{
+      // RPC returns one jsonb array of every bet (all rounds) — a single row, so
+      // it sidesteps the "Max rows" cap that a row-set return would hit.
       return await rest("rpc/preds_fetch_all", {method:"POST",
         body:JSON.stringify({p_player:me.id, p_auth:me.auth})}) || [];
     }catch(e){ /* fall through to the public locked-only select */ }
   }
-  return await rest("predictions?select=player_id,match_id,pred_home,pred_away") || [];
+  // paginated past the Max rows cap; ordered so Range paging is stable. Without an
+  // order the cap would truncate an arbitrary slice once predictions exceed it.
+  return await restAll("predictions?select=player_id,match_id,pred_home,pred_away&order=match_id.asc,player_id.asc") || [];
 }
 // Everyone's bets, grouped by match, for the per-match "See bets" dropdown.
 async function loadAllBets(){

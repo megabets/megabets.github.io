@@ -202,6 +202,19 @@
   .mb-bet{font-family:"Spline Sans Mono",monospace; font-weight:600; color:var(--ink);
     font-size:13px; min-width:34px; text-align:right}
   .mb-none{color:var(--muted); font-weight:400}
+  /* tap a team name → its past matches this tournament */
+  .match .team.teamtap{cursor:pointer}
+  .match .team.teamtap:hover{text-decoration:underline}
+  .match .team.teamtap.active{color:var(--accent)}
+  .teamhistory{background:var(--panel2); border:1px solid var(--line); border-top:none;
+    border-radius:0 0 12px 12px; margin:-10px 0 10px; padding:2px 0}
+  .th-line{display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:7px 14px; border-bottom:1px solid var(--hairline); font-size:13px}
+  .th-line:last-child{border-bottom:none}
+  .th-score{font-family:"Spline Sans Mono",monospace; font-weight:600; color:var(--ink); font-size:13px}
+  .th-res{font-family:"Spline Sans Mono",monospace; font-weight:700; font-size:11px;
+    min-width:16px; text-align:center}
+  .th-res.w{color:var(--accent)} .th-res.d{color:var(--gold)} .th-res.l{color:var(--accent2)}
   /* logged-out: tapping a score square turns both squares of that match red, not the usual green */
   .match .score:focus-within input[readonly]{border-color:var(--accent2)}
   #loginToast{position:fixed; left:50%; transform:translateX(-50%); bottom:20px; z-index:60;
@@ -1163,6 +1176,25 @@ function matchBetsHtml(matchId){
       <span class="mb-right"><span class="mb-bet ${betCls}">${e.pr.pred_home}–${e.pr.pred_away}</span>${ptsHtml}</span></div>`;
   }).join("");
 }
+// Tapping a team name unfolds that team's finished matches THIS tournament (from MATCHES,
+// no extra fetch). Result W/D/L is shown from the tapped team's perspective.
+function teamHistoryHtml(team, currentId){
+  const past = MATCHES
+    .filter(m => String(m.id)!==String(currentId) && isFinal(m) && hasScore(m)
+                 && (m.home_team===team || m.away_team===team))
+    .sort((a,b)=> new Date(b.kickoff) - new Date(a.kickoff));
+  if(!past.length) return `<div class="mb-line"><span class="mb-none">No finished matches yet.</span></div>`;
+  return past.map(m=>{
+    const home = m.home_team===team;
+    const gf = home ? m.home_score : m.away_score;
+    const ga = home ? m.away_score : m.home_score;
+    const opp = home ? m.away_team : m.home_team;
+    const res = gf>ga ? "W" : gf===ga ? "D" : "L";
+    const cls = gf>ga ? "w" : gf===ga ? "d" : "l";
+    return `<div class="th-line"><span class="mb-nick">vs ${esc(opp)}</span>
+      <span class="mb-right"><span class="th-score">${gf}–${ga}</span><span class="th-res ${cls}">${res}</span></span></div>`;
+  }).join("");
+}
 function paintBet(stage){
   const list=$("#matchList");
   const loggedOut = !me;
@@ -1173,13 +1205,13 @@ function paintBet(stage){
     const p = MY_PREDS[m.id]||{};
     const mLock = isLocked(m);
     return `<div class="match ${mLock?'locked':''}" data-id="${m.id}">
-      <div class="team">${esc(m.home_team)}</div>
+      <div class="team teamtap" data-team="${esc(m.home_team)}">${esc(m.home_team)}</div>
       <div class="score">
         <input type="number" min="0" max="30" class="ph" value="${p.pred_home??""}" ${mLock?'disabled':loggedOut?'readonly':''}/>
         <span style="color:var(--muted)">–</span>
         <input type="number" min="0" max="30" class="pa" value="${p.pred_away??""}" ${mLock?'disabled':loggedOut?'readonly':''}/>
       </div>
-      <div class="team away">${esc(m.away_team)}</div>
+      <div class="team away teamtap" data-team="${esc(m.away_team)}">${esc(m.away_team)}</div>
       <div class="meta"><span>${fmtKO(m.kickoff)}</span><span>${matchBadgeHtml(m)}</span></div>
       ${(mLock || (showAllBets && isAdmin())) ? `<button type="button" class="betsbar"><span class="caret">▸</span> See bets (${Object.keys(PREDS_BY_MATCH[m.id]||{}).length})</button>` : ``}
     </div>`;
@@ -1191,12 +1223,35 @@ function paintBet(stage){
     list.addEventListener("focusin", e=>{
       if(!me && e.target.matches(".ph,.pa")) showLoginToast();
     });
-    // Tap a locked match's "See bets" bar to unfold every player's prediction for it.
+    // Removes whichever dropdown panel (player bets or team history) sits under a match
+    // card, and resets its trigger, so only one panel is ever open per card.
+    const closePanel = match=>{
+      const next = match.nextElementSibling;
+      if(next && (next.classList.contains("matchbets") || next.classList.contains("teamhistory"))) next.remove();
+      match.querySelector(".betsbar.open")?.classList.remove("open");
+      match.querySelectorAll(".teamtap.active").forEach(t=>t.classList.remove("active"));
+    };
     list.addEventListener("click", e=>{
+      // Tap a team name to unfold its past matches this tournament.
+      const teamEl = e.target.closest(".teamtap");
+      if(teamEl){
+        const match = teamEl.closest(".match");
+        const next = match.nextElementSibling;
+        const openSame = next && next.classList.contains("teamhistory")
+          && next.dataset.team===teamEl.dataset.team;
+        closePanel(match);
+        if(openSame) return; // toggle closed
+        teamEl.classList.add("active");
+        match.insertAdjacentHTML("afterend",
+          `<div class="teamhistory" data-team="${esc(teamEl.dataset.team)}">${teamHistoryHtml(teamEl.dataset.team, match.dataset.id)}</div>`);
+        return;
+      }
+      // Tap a locked match's "See bets" bar to unfold every player's prediction for it.
       const bar = e.target.closest(".betsbar"); if(!bar) return;
       const match = bar.closest(".match");
       const next = match.nextElementSibling;
       if(next && next.classList.contains("matchbets")){ next.remove(); bar.classList.remove("open"); return; }
+      closePanel(match);
       bar.classList.add("open");
       match.insertAdjacentHTML("afterend", `<div class="matchbets">${matchBetsHtml(match.dataset.id)}</div>`);
     });

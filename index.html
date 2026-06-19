@@ -641,7 +641,7 @@ document.querySelectorAll("nav.tabs button").forEach(b=>{
     document.querySelectorAll(".view").forEach(x=>x.classList.remove("active"));
     b.classList.add("active");
     $("#view-"+b.dataset.tab).classList.add("active");
-    if(b.dataset.tab==="bet") renderBet();
+    if(b.dataset.tab==="bet"){ currentStage = DEFAULT_STAGE; renderBet(); }
     if(b.dataset.tab==="standings") renderStandings();
     if(b.dataset.tab==="chat"){ if(canChat()){ loadChat(); startChatPoll(); } else renderChatLocked(); } else { stopChatPoll(); }
   };
@@ -1069,13 +1069,14 @@ const STAGE_TABS = {
   R32:"Last 32", R16:"Last 16", QF:"Quarters",
   SF:"Semis", "3RD":"3rd", FINAL:"Final"
 };
-let currentStage = "";
+const DEFAULT_STAGE = "MD2";   // Bet tab opens on Round 2 by default
+let currentStage = DEFAULT_STAGE;
 // Build the round tab strip from stages that currently have matches, keeping the
 // active round selected (or defaulting to the first available round).
 function fillRoundTabs(container){
   const present = STAGE_ORDER.filter(s=> MATCHES.some(m=>m.stage===s));
   if(!present.length){ container.innerHTML=""; currentStage=""; return; }
-  if(!present.includes(currentStage)) currentStage = present[0];
+  if(!present.includes(currentStage) && currentStage !== DEFAULT_STAGE) currentStage = present[0];
   container.innerHTML = present.map(s=>
     `<button type="button" data-stage="${s}" class="${s===currentStage?'active':''}">${STAGE_TABS[s]||s}</button>`
   ).join("");

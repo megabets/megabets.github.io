@@ -554,10 +554,12 @@ const errMsg = e => { try{ return JSON.parse(e.message).message || e.message; }c
 // Fetch ALL rows for a PostgREST path/RPC, paging past the project "Max rows" cap
 // (default 1000) via Range headers. A query must carry a stable &order=... so the
 // pages line up. Termination:
-//   • HTTP 200 → the window reached the last row (done); 206 → a partial page (more
-//     rows lie beyond the window, fetch the next one). A 206 only ever appears when
-//     more rows exist, so the next offset is always valid — we never request an
-//     out-of-range page (which would 416).
+//   • Row-count: a full page (chunk.length === page) means more rows may follow, so
+//     fetch the next window; a short/empty page means we reached the end. We can't
+//     rely on the HTTP status here — this instance returns 200 (not 206) even for a
+//     capped partial first page, so a status check would stop after page 1. A Range
+//     past the last row returns 200 with an empty body (not 416), so the loop ends
+//     cleanly when the total is an exact multiple of the page size.
 //   • Content-Range start guard: if the server returns a window that doesn't start
 //     where we asked, it isn't honoring the offset (some set-returning RPCs cap at
 //     Max rows and ignore Range). We stop instead of looping forever on duplicates.
@@ -580,7 +582,7 @@ async function restAll(path, opts={}, page=1000){
     if(from>0 && Number.isFinite(start) && start!==from) break; // offset ignored → stop (avoid dup/loop)
     const chunk = txt ? JSON.parse(txt) : [];
     out.push(...chunk);
-    if(res.status!==206 || chunk.length<page) break;  // 200 = full set delivered; short page = last
+    if(chunk.length < page) break;  // short/empty page → last page reached
   }
   return out;
 }

@@ -173,6 +173,19 @@
     border-radius:9px; cursor:pointer; white-space:nowrap; transition:.15s}
   .roundtabs button.active{background:var(--accent-strong); border-color:var(--accent-strong); color:var(--on-accent-strong)}
   .roundtabs button:hover:not(.active){color:var(--ink); background:var(--line)}
+  /* "Past" dropdown subtab — groups finished rounds to keep the strip short */
+  .roundtabs-past{position:relative; flex:0 0 auto}
+  #pastToggle .caret{display:inline-block; transition:transform .15s ease; font-size:10px}
+  .roundtabs-past:has(.pastmenu.open) #pastToggle .caret{transform:rotate(180deg)}
+  .pastmenu{position:absolute; left:0; top:calc(100% + 6px); display:none; min-width:140px;
+    background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:6px;
+    box-shadow:0 12px 30px rgba(0,0,0,.4); z-index:20}
+  .pastmenu.open{display:block}
+  .pastmenu button{display:block; width:100%; text-align:left; background:transparent; border:0;
+    color:var(--ink); font-family:inherit; font-weight:600; font-size:13px; padding:8px 10px;
+    border-radius:7px; cursor:pointer; white-space:nowrap; transition:.15s}
+  .pastmenu button:hover:not(.active){background:var(--panel2)}
+  .pastmenu button.active{background:var(--accent-strong); color:var(--on-accent-strong)}
   .match{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:10px;
     background:var(--panel2); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:10px}
   .match .team{font-weight:600; font-size:15px}
@@ -980,6 +993,7 @@ submitOnEnter(["inviteCode","pinConfirm"], "confirmBtn");  // Confirm PIN modal
 // user chip dropdown
 $("#userChip").onclick = e=>{ e.stopPropagation(); $("#userMenu").classList.toggle("open"); };
 document.addEventListener("click", ()=> $("#userMenu").classList.remove("open"));
+document.addEventListener("click", ()=> $("#pastMenu")?.classList.remove("open"));
 // light/dark theme toggle (dark is default; choice persists in localStorage)
 function syncThemeColor(){
   const light = document.documentElement.dataset.theme === "light";
@@ -1167,9 +1181,25 @@ function computeDefaultStage(){
 function fillRoundTabs(container){
   const present = STAGE_ORDER.filter(s=> MATCHES.some(m=>m.stage===s));
   if(!present.length){ container.innerHTML=""; currentStage=""; return; }
-  if(!present.includes(currentStage) && currentStage!=="PODIUM") currentStage = present[0];
+  // A round is "past" once every one of its matches is finished — those get folded
+  // into a single "Past" dropdown to keep the strip short. Rounds still in play
+  // (locked-but-unplayed or upcoming) stay as inline tabs.
+  const isPastStage = s => { const ms = MATCHES.filter(m=>m.stage===s); return ms.length && ms.every(isFinal); };
+  const pastStages   = present.filter(isPastStage);
+  const activeStages = present.filter(s=> !isPastStage(s));
+  if(!present.includes(currentStage) && currentStage!=="PODIUM") currentStage = (activeStages[0] || present[0]);
+  // Past dropdown (leftmost): the toggle relabels to the selected past round and goes
+  // active when one is showing; the menu lists each finished round as a data-stage button.
+  const selPast = pastStages.includes(currentStage) ? currentStage : null;
+  const pastLabel = selPast ? (STAGE_TABS[selPast]||selPast) : "Past";
+  const pastHTML = pastStages.length ? `<div class="roundtabs-past" id="pastWrap">`+
+      `<button type="button" id="pastToggle" class="${selPast?'active':''}">${pastLabel} <span class="caret">⌄</span></button>`+
+      `<div class="pastmenu" id="pastMenu">`+
+        pastStages.map(s=>`<button type="button" data-stage="${s}" class="${s===currentStage?'active':''}">${STAGE_TABS[s]||s}</button>`).join("")+
+      `</div>`+
+    `</div>` : "";
   // The 🏆 podium bet is always available (a pseudo-stage appended after the rounds).
-  container.innerHTML = present.map(s=>
+  container.innerHTML = pastHTML + activeStages.map(s=>
     `<button type="button" data-stage="${s}" class="${s===currentStage?'active':''}">${STAGE_TABS[s]||s}</button>`
   ).join("") +
     `<button type="button" data-stage="PODIUM" class="${currentStage==="PODIUM"?'active':''}">🏆 Podium</button>`;
@@ -1208,10 +1238,18 @@ async function renderBet(){
   if(!tabs.dataset.init){
     tabs.dataset.init="1";
     tabs.addEventListener("click", e=>{
+      // The "Past ⌄" toggle just opens/closes its dropdown — it has no data-stage.
+      if(e.target.closest("#pastToggle")){
+        e.stopPropagation();
+        $("#pastMenu")?.classList.toggle("open");
+        return;
+      }
       const b=e.target.closest("button[data-stage]");
       if(!b || b.classList.contains("active")) return;
       currentStage=b.dataset.stage;
-      tabs.querySelectorAll("button").forEach(x=>x.classList.toggle("active", x===b));
+      // Re-render the strip so the Past toggle relabels/highlights for the new
+      // selection and the dropdown collapses; cheaper than tracking state by hand.
+      fillRoundTabs(tabs);
       paintBet(currentStage);
     });
   }

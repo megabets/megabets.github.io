@@ -175,11 +175,11 @@
   .roundtabs button:hover:not(.active){color:var(--ink); background:var(--line)}
   /* "Past" dropdown subtab — groups finished rounds to keep the strip short */
   .roundtabs-past{position:relative; flex:0 0 auto}
-  #pastToggle .caret{display:inline-block; transition:transform .15s ease; font-size:10px}
+  #pastToggle .caret{display:inline-block; transition:transform .15s ease; font-size:20px}
   .roundtabs-past:has(.pastmenu.open) #pastToggle .caret{transform:rotate(180deg)}
-  .pastmenu{position:absolute; left:0; top:calc(100% + 6px); display:none; min-width:140px;
+  .pastmenu{position:fixed; display:none; min-width:140px;
     background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:6px;
-    box-shadow:0 12px 30px rgba(0,0,0,.4); z-index:20}
+    box-shadow:0 12px 30px rgba(0,0,0,.4); z-index:30}
   .pastmenu.open{display:block}
   .pastmenu button{display:block; width:100%; text-align:left; background:transparent; border:0;
     color:var(--ink); font-family:inherit; font-weight:600; font-size:13px; padding:8px 10px;
@@ -1239,9 +1239,20 @@ async function renderBet(){
     tabs.dataset.init="1";
     tabs.addEventListener("click", e=>{
       // The "Past ⌄" toggle just opens/closes its dropdown — it has no data-stage.
-      if(e.target.closest("#pastToggle")){
+      const toggle = e.target.closest("#pastToggle");
+      if(toggle){
         e.stopPropagation();
-        $("#pastMenu")?.classList.toggle("open");
+        const menu = $("#pastMenu");
+        const willOpen = !menu.classList.contains("open");
+        menu.classList.toggle("open");
+        // The strip scrolls horizontally (overflow:auto), which would clip an
+        // absolutely-positioned child — so the menu is position:fixed and we
+        // anchor it to the toggle here each time it opens.
+        if(willOpen){
+          const r = toggle.getBoundingClientRect();
+          menu.style.left = r.left + "px";
+          menu.style.top  = (r.bottom + 6) + "px";
+        }
         return;
       }
       const b=e.target.closest("button[data-stage]");

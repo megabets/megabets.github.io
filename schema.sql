@@ -140,6 +140,31 @@ revoke all on table payments from anon, authenticated;
 -- would let anyone holding the (public) anon key tamper with match scores.
 --   create policy "update matches" on matches for update using (true);  -- ⚠ insecure, leave off
 
+-- ── Podium bet (winner / finalist / 3rd / 4th) ───────────
+-- Tournament-wide bet, scored on exact final placement (5/3/2/2). Defined in
+-- full — tables, RLS, and RPCs — in sql/04_podium.sql; mirrored here so a fresh
+-- install matches the live DB. Run sql/04_podium.sql to create the RPCs.
+create table if not exists podium_bets (
+  player_id    uuid primary key references players(id) on delete cascade,
+  winner       text, finalist text, third text, fourth text,
+  submitted_at timestamptz not null default now()
+);
+create table if not exists podium_result (
+  id         int primary key default 1 check (id = 1),
+  winner     text, finalist text, third text, fourth text,
+  updated_at timestamptz not null default now()
+);
+alter table podium_bets enable row level security;
+alter table podium_result enable row level security;
+-- Others' podium picks stay hidden until the bet locks (same idea as the
+-- kicked-off-only predictions policy); the actual result is always public.
+create policy podium_read_after_lock on podium_bets for select
+  using (now() > timestamptz '2026-07-04 23:59:00+00');
+create policy podium_result_read on podium_result for select using (true);
+grant select on podium_bets, podium_result to anon, authenticated;
+-- Writes go only through podium_save (own picks, lock-enforced) and
+-- podium_result_set (admin) in sql/04_podium.sql — no public write policy.
+
 -- ── Migrating an EXISTING pre-lockdown project ───────────
 -- Don't re-run this file. Instead run, in order (details + rollback inside):
 --   1. sql/01_lockdown_setup.sql   (additive: invites, throttle, RPC functions)

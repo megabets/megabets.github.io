@@ -4,10 +4,10 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>megabets — World Cup 2026</title>
-<link rel="icon" href="favicon.ico" sizes="any" />
-<link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
-<link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
-<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+<link rel="icon" href="assets/favicon.ico" sizes="any" />
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32x32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16x16.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
 <link rel="manifest" href="site.webmanifest" />
 <meta name="theme-color" content="#0a0e14" />
 <meta name="apple-mobile-web-app-title" content="megabets" />
@@ -215,6 +215,20 @@
   .th-res{font-family:"Spline Sans Mono",monospace; font-weight:700; font-size:11px;
     min-width:16px; text-align:center}
   .th-res.w{color:var(--accent)} .th-res.d{color:var(--gold)} .th-res.l{color:var(--accent2)}
+  /* podium bet (winner / finalist / 3rd / 4th) */
+  .pod-intro{font-size:13px; color:var(--muted); margin-bottom:14px; line-height:1.5}
+  .pod-row{background:var(--panel2); border:1px solid var(--line); border-radius:12px;
+    padding:12px 14px; margin-bottom:10px}
+  .pod-label{display:flex; align-items:center; justify-content:space-between; gap:10px;
+    font-weight:600; font-size:15px; margin-bottom:8px}
+  .pod-pts{font-family:"Spline Sans Mono",monospace; font-size:11.5px; color:var(--muted); font-weight:600}
+  .pod-pick,.pod-res-pick{width:100%; box-sizing:border-box; padding:10px 12px; font-size:15px}
+  .pod-pick:disabled{background:var(--input-locked); cursor:not-allowed}
+  .pod-actual{margin-top:8px; display:flex; align-items:center; gap:8px;
+    font-family:"Spline Sans Mono",monospace; font-size:12px; color:var(--muted)}
+  .pod-actual b{color:var(--ink)}
+  .pod-actions{margin-top:14px}
+  .pod-admin{margin-top:22px; padding-top:18px; border-top:1px dashed var(--line)}
   /* logged-out: tapping a score square turns both squares of that match red, not the usual green */
   .match .score:focus-within input[readonly]{border-color:var(--accent2)}
   #loginToast{position:fixed; left:50%; transform:translateX(-50%); bottom:20px; z-index:60;
@@ -315,7 +329,7 @@
 <div class="wrap">
   <header class="top">
     <div class="brandwrap">
-      <img class="brand-logo" src="mainimgwhite.webp" alt="FIFA World Cup 2026 trophy" />
+      <img class="brand-logo" src="assets/mainimgwhite.webp" alt="FIFA World Cup 2026 trophy" />
       <div class="brand">
         <h1>megabets</h1>
         <span class="yr">WC2026</span>
@@ -502,6 +516,15 @@
     <div class="ruleln"><span>Correct outcome</span><b class="pts p1">1 point</b></div>
     <div class="ruleln"><span>Wrong</span><b class="pts p0">0 points</b></div>
 
+    <div class="rules-section">Podium bet 🏆</div>
+    <div class="ruleln"><span>Winner</span><b class="pts p3">5 points</b></div>
+    <div class="ruleln"><span>Finalist (runner-up)</span><b class="pts p3">3 points</b></div>
+    <div class="ruleln"><span>3rd place</span><b class="pts p3">2 points</b></div>
+    <div class="ruleln"><span>4th place</span><b class="pts p3">2 points</b></div>
+    <ul class="rulelist">
+      <li>In the 🏆 Podium tab, predict the tournament's final standings. Points are awarded only for an exact placement match. Picks lock on 4 July (end of the Round of 32).</li>
+    </ul>
+
     <div class="rules-section">Other rules</div>
     <ul class="rulelist">
       <li>Place your bet on each match before that match kicks off — you can update it until kickoff. Once a match starts, your bet for it is locked.</li>
@@ -595,6 +618,8 @@ let MATCHES = [];   // all matches
 let MY_PREDS = {};  // match_id -> {pred_home,pred_away}
 let ALL_PLAYERS = [];     // [{id, nickname}, ...] — for the per-match "all bets" dropdown
 let PREDS_BY_MATCH = {};  // match_id -> { player_id -> {pred_home,pred_away} } (locked matches only, per RLS)
+let MY_PODIUM = {};       // caller's podium picks {winner,finalist,third,fourth}
+let PODIUM_RESULT = null; // actual podium {winner,finalist,third,fourth} once the admin sets it
 const ADMIN_NICK = "trololoic"; // organizer who may edit the hidden "Paid" column
 let showPaid = false; // revealed for this session by tapping the footer 5×
 let showAllBets = false; // admin: same 5-tap reveals every player's bets, incl. non-locked
@@ -612,6 +637,26 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const fmtKO = iso => new Date(iso).toLocaleString([], {weekday:"short", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"});
 const isLocked = m => new Date(m.kickoff) <= new Date(); // each match locks at its own kickoff
+// Podium bet (winner/finalist/3rd/4th). Picks lock at the anticipated end of the
+// Round of 32 — a fixed timestamp, also enforced server-side in podium_save.
+const PODIUM_LOCK = new Date("2026-07-04T23:59:00Z");
+const podiumLocked = () => new Date() >= PODIUM_LOCK;
+const PODIUM_SLOTS = [ // slot key, label, points for an exact hit
+  {key:"winner",   label:"🏆 Winner",    pts:5},
+  {key:"finalist", label:"🥈 Finalist",  pts:3},
+  {key:"third",    label:"🥉 3rd place", pts:2},
+  {key:"fourth",   label:"4️⃣ 4th place", pts:2}
+];
+// Exact-position scoring: each slot scores only if it equals the actual placement.
+function podiumPoints(bet, res){
+  if(!bet || !res) return 0;
+  let p=0;
+  for(const s of PODIUM_SLOTS) if(bet[s.key] && bet[s.key]===res[s.key]) p+=s.pts;
+  return p;
+}
+// All teams seen in the fixtures, de-duplicated and sorted — the pick pool.
+const podiumTeams = () => [...new Set(MATCHES.flatMap(m=>[m.home_team, m.away_team]))]
+  .filter(Boolean).sort((a,b)=>a.localeCompare(b));
 // `status` from football-data.org is authoritative for finality. fullTime holds the
 // LIVE running score during play (IN_PLAY/PAUSED), so a present score does NOT mean
 // the match is over — only these states do. Everything that says "FT" or awards
@@ -656,7 +701,7 @@ document.querySelectorAll("nav.tabs button").forEach(b=>{
     document.querySelectorAll(".view").forEach(x=>x.classList.remove("active"));
     b.classList.add("active");
     $("#view-"+b.dataset.tab).classList.add("active");
-    if(b.dataset.tab==="bet"){ currentStage = DEFAULT_STAGE; renderBet(); }
+    if(b.dataset.tab==="bet"){ renderBet(); }
     if(b.dataset.tab==="standings") renderStandings();
     if(b.dataset.tab==="chat"){ if(canChat()){ loadChat(); startChatPoll(); } else renderChatLocked(); } else { stopChatPoll(); }
   };
@@ -1078,23 +1123,56 @@ async function loadAllBets(){
   PREDS_BY_MATCH = {};
   (preds||[]).forEach(pr => ((PREDS_BY_MATCH[pr.match_id] ||= {})[pr.player_id] = pr));
 }
+// Caller's own podium picks (the public read policy hides them until lock, so they
+// come via RPC — same pattern as preds_fetch). Non-fatal on failure.
+async function loadMyPodium(){
+  MY_PODIUM = {};
+  if(!me || !me.auth) return;
+  try{
+    const rows = await rest("rpc/podium_fetch", {method:"POST",
+      body:JSON.stringify({p_player:me.id, p_auth:me.auth})}) || [];
+    if(rows[0]) MY_PODIUM = rows[0];
+  }catch(e){
+    if(/invalid credentials/.test(String(e))){ handleAuthFail(); return; }
+    /* podium RPCs not deployed yet → leave picks empty */
+  }
+}
+// Actual podium result (world-readable once the admin sets it). Non-fatal.
+async function loadPodiumResult(){
+  try{
+    const rows = await rest("podium_result?select=*");
+    PODIUM_RESULT = (rows && rows[0]) || null;
+  }catch(e){ PODIUM_RESULT = null; }
+}
 // Short worded labels for the round tab strip (full STAGES names are too long for tabs).
 const STAGE_TABS = {
   MD1:"Round 1", MD2:"Round 2", MD3:"Round 3",
   R32:"Last 32", R16:"Last 16", QF:"Quarters",
   SF:"Semis", "3RD":"3rd", FINAL:"Final"
 };
-const DEFAULT_STAGE = "MD2";   // Bet tab opens on Round 2 by default
-let currentStage = DEFAULT_STAGE;
+let currentStage = "";          // resolved on first bet render to the next match's stage
+let stageInited = false;
+// Stage of the next scheduled match (earliest kickoff still in the future).
+// MATCHES is sorted kickoff.asc, so the first not-yet-locked match is the next one.
+// Fallback when nothing is upcoming: the last stage that has matches.
+function computeDefaultStage(){
+  const present = STAGE_ORDER.filter(s=> MATCHES.some(m=>m.stage===s));
+  if(!present.length) return "";
+  const next = MATCHES.find(m=> !isLocked(m));
+  if(next && present.includes(next.stage)) return next.stage;
+  return present[present.length-1];
+}
 // Build the round tab strip from stages that currently have matches, keeping the
 // active round selected (or defaulting to the first available round).
 function fillRoundTabs(container){
   const present = STAGE_ORDER.filter(s=> MATCHES.some(m=>m.stage===s));
   if(!present.length){ container.innerHTML=""; currentStage=""; return; }
-  if(!present.includes(currentStage) && currentStage !== DEFAULT_STAGE) currentStage = present[0];
+  if(!present.includes(currentStage) && currentStage!=="PODIUM") currentStage = present[0];
+  // The 🏆 podium bet is always available (a pseudo-stage appended after the rounds).
   container.innerHTML = present.map(s=>
     `<button type="button" data-stage="${s}" class="${s===currentStage?'active':''}">${STAGE_TABS[s]||s}</button>`
-  ).join("");
+  ).join("") +
+    `<button type="button" data-stage="PODIUM" class="${currentStage==="PODIUM"?'active':''}">🏆 Podium</button>`;
 }
 
 /* ───────────── bet view ───────────── */
@@ -1119,9 +1197,12 @@ async function renderBet(){
     if(!MATCHES.length) await loadMatches();
     await loadMyPreds();
   }catch(e){ list.innerHTML=`<div class="empty">Couldn't load matches: ${esc(e.message)}</div>`; return; }
+  if(!stageInited){ currentStage = computeDefaultStage(); stageInited = true; }
   // Everyone's locked bets for the per-match dropdown — non-fatal: a failure here
   // just leaves the dropdowns empty rather than breaking the betting UI.
   try{ await loadAllBets(); }catch(e){ /* dropdowns disabled */ }
+  // Podium picks + actual result for the 🏆 tab — both self-swallow errors.
+  await Promise.all([loadMyPodium(), loadPodiumResult()]);
   updateMatchCount();
   const tabs=$("#roundTabs");
   if(!tabs.dataset.init){
@@ -1199,6 +1280,7 @@ function teamHistoryHtml(team, currentId){
 }
 function paintBet(stage){
   const list=$("#matchList");
+  if(stage==="PODIUM"){ paintPodium(); return; }
   const loggedOut = !me;
   const ms = MATCHES.filter(m=>m.stage===stage);
   if(!ms.length){ list.innerHTML=`<div class="empty">No matches in this round yet.</div>`; $("#betActions").style.display="none"; return; }
@@ -1260,6 +1342,82 @@ function paintBet(stage){
     list.dataset.dirtyInit="1";
   }
   updateBetDirty();
+}
+// The 🏆 Podium bet: pick winner / finalist / 3rd / 4th from a type-to-filter team
+// list. Picks lock at PODIUM_LOCK (also enforced server-side). Once the admin sets
+// the actual result, each row shows the actual placement and the points earned.
+function paintPodium(){
+  const list=$("#matchList");
+  $("#betActions").style.display="none";       // podium has its own Save button
+  const locked = podiumLocked();
+  const res = PODIUM_RESULT;
+  const opts = podiumTeams().map(t=>`<option value="${esc(t)}"></option>`).join("");
+  const lockTxt = PODIUM_LOCK.toLocaleString([], {weekday:"short", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"});
+
+  const slotRow = s=>{
+    const mine = MY_PODIUM[s.key] || "";
+    const actual = res ? (res[s.key]||"") : "";
+    const hit = !!(res && mine && mine===actual);
+    const resTag = !res ? "" : (mine
+      ? `<span class="pts ${hit?'p3':'p0'}">${hit?`+${s.pts}`:'+0'}</span>`
+      : `<span class="pts p0">—</span>`);
+    return `<div class="pod-row">
+      <label class="pod-label">${s.label}<span class="pod-pts">${s.pts} pt${s.pts>1?'s':''}</span></label>
+      <input class="pod-pick" data-slot="${s.key}" list="teamOptions" value="${esc(mine)}"
+             placeholder="Pick a team…" autocomplete="off" ${locked?'disabled':''}/>
+      ${res ? `<div class="pod-actual">Actual: <b>${actual?esc(actual):'—'}</b>${resTag}</div>` : ``}
+    </div>`;
+  };
+
+  let html = `<datalist id="teamOptions">${opts}</datalist>
+    <div class="pod-intro">Predict the tournament's final standings — exact placement only.
+      Picks lock <b>${esc(lockTxt)}</b>.</div>
+    ${locked ? `<div class="hint" style="margin-bottom:12px">🔒 Podium bets are locked.</div>` : ``}
+    ${PODIUM_SLOTS.map(slotRow).join("")}`;
+  if(!locked) html += me
+    ? `<div class="pod-actions"><button class="btn" id="savePodium">Save podium</button><div class="msg" id="podiumMsg"></div></div>`
+    : `<div class="hint">Log in to place your podium bet.</div>`;
+
+  // Admin-only "set actual podium" form, behind the same 5-tap reveal as all-bets.
+  if(isAdmin() && showAllBets){
+    html += `<div class="pod-admin"><div class="pod-intro">⚙️ Set the actual podium (admin)</div>`
+      + PODIUM_SLOTS.map(s=>`<div class="pod-row">
+          <label class="pod-label">${s.label}</label>
+          <input class="pod-res-pick" data-slot="${s.key}" list="teamOptions" value="${esc((res&&res[s.key])||'')}"
+                 placeholder="Pick a team…" autocomplete="off"/>
+        </div>`).join("")
+      + `<div class="pod-actions"><button class="btn" id="savePodiumResult">Save result</button><div class="msg" id="podiumResultMsg"></div></div></div>`;
+  }
+  list.innerHTML = html;
+
+  const pickVal = (sel,k)=>{ const v=(list.querySelector(`${sel}[data-slot="${k}"]`)?.value||"").trim(); return v||null; };
+  const saveBtn = $("#savePodium");
+  if(saveBtn) saveBtn.onclick = async ()=>{
+    const msg=$("#podiumMsg"); msg.className="msg"; msg.textContent="Saving…";
+    try{
+      await rest("rpc/podium_save", {method:"POST", body:JSON.stringify({
+        p_player:me.id, p_auth:me.auth,
+        p_winner:pickVal(".pod-pick","winner"), p_finalist:pickVal(".pod-pick","finalist"),
+        p_third:pickVal(".pod-pick","third"), p_fourth:pickVal(".pod-pick","fourth")})});
+      await loadMyPodium();
+      msg.className="msg ok"; msg.textContent="Saved.";
+    }catch(e){
+      if(/invalid credentials/.test(String(e))){ handleAuthFail(); return; }
+      msg.className="msg err"; msg.textContent="Error: "+errMsg(e);
+    }
+  };
+  const saveResBtn = $("#savePodiumResult");
+  if(saveResBtn) saveResBtn.onclick = async ()=>{
+    const msg=$("#podiumResultMsg"); msg.className="msg"; msg.textContent="Saving…";
+    try{
+      await rest("rpc/podium_result_set", {method:"POST", body:JSON.stringify({
+        p_player:me.id, p_auth:me.auth,
+        p_winner:pickVal(".pod-res-pick","winner"), p_finalist:pickVal(".pod-res-pick","finalist"),
+        p_third:pickVal(".pod-res-pick","third"), p_fourth:pickVal(".pod-res-pick","fourth")})});
+      await loadPodiumResult();
+      msg.className="msg ok"; msg.textContent="Result saved.";
+    }catch(e){ msg.className="msg err"; msg.textContent="Error: "+errMsg(e); }
+  };
 }
 // Fixed bottom toast telling logged-out users to log in; auto-hides after a few seconds.
 let loginToastTimer=null;
@@ -1394,14 +1552,18 @@ async function renderStandings(){
     // only renders for the organizer; the kicked-off-only SELECT policy on
     // predictions returns exactly the rows that can score
     const isAdmin = !!(me && me.auth && me.nickname.toLowerCase()===ADMIN_NICK);
-    const [players, preds, pays] = await Promise.all([
+    const [players, preds, pays, pbets, pres] = await Promise.all([
       rest("players?select=id,nickname"),
       fetchAllPreds(),
       (showPaid && isAdmin)
         ? rest("rpc/payments_fetch", {method:"POST", body:JSON.stringify({p_player:me.id, p_auth:me.auth})}).catch(()=>[])
-        : Promise.resolve([])
+        : Promise.resolve([]),
+      rest("podium_bets?select=*").catch(()=>[]),   // RLS exposes these only after the lock
+      rest("podium_result?select=*").catch(()=>[])  // public once the admin sets it
     ]);
     const paidById={}; (pays||[]).forEach(p=> paidById[p.player_id]=p.paid);
+    const podRes = (pres && pres[0]) || null;
+    const podiumByPlayer={}; (pbets||[]).forEach(b=> podiumByPlayer[b.player_id]=b);
     showPaid = showPaid && isAdmin; // non-admins have nothing to reveal anymore
     if(!MATCHES.length) await loadMatches();
     const mById={}; MATCHES.forEach(m=>mById[m.id]=m);
@@ -1414,6 +1576,9 @@ async function renderStandings(){
       const t=tally[pr.player_id]; if(!t) return;
       t.pts+=pt; t.played++; if(pt===3) t.exact++;
     });
+    // Podium bet adds to the total only once the actual result is set (5/3/2/2 for
+    // exact placement). It doesn't affect the Exact/Played match counters.
+    if(podRes) for(const pid in tally) tally[pid].pts += podiumPoints(podiumByPlayer[pid], podRes);
     const rows=Object.entries(tally).map(([id,t])=>({id,...t}))
       .sort((a,b)=> b.pts-a.pts || b.exact-a.exact || a.nick.localeCompare(b.nick));
     if(!rows.length){ box.innerHTML=`<div class="empty">No players yet.</div>`; return; }
@@ -1447,13 +1612,30 @@ async function renderStandings(){
         if(p<1) requestAnimationFrame(tick); })(start); }
     // Tap a player row to unfold all their locked bets (bet first, then result + points).
     const colCount = showPaid ? 6 : 5;
+    // A player's podium picks (visible only after lock, per RLS), with the actual
+    // placement + points once the result is set. Mirrors the match betline layout.
+    const podiumBetsHtml = pid => {
+      const bet = podiumByPlayer[pid]; if(!bet) return "";
+      return `<div class="betlist">`+PODIUM_SLOTS.map(s=>{
+        const mine = bet[s.key]||"", actual = podRes ? (podRes[s.key]||"") : "";
+        const hit = !!(podRes && mine && mine===actual);
+        const resHtml = !podRes ? "" : `<span class="tag bl-res">${actual?esc(actual):'—'}</span>`;
+        const ptsHtml = !podRes ? "" : `<span class="pts ${hit?'p3':'p0'}">${hit?`+${s.pts}`:'+0'}</span>`;
+        return `<div class="betline">
+          <div class="bl-match"><span class="bl-stage">Podium · ${s.pts}pt</span>
+            <span class="bl-teams">${s.label}</span></div>
+          <div class="bl-right">${resHtml}<span class="bl-bet">${mine?esc(mine):'—'}</span>${ptsHtml}</div>
+        </div>`;
+      }).join("")+`</div>`;
+    };
     const playerBetsHtml = pid => {
       const list = (predsByPlayer[pid]||[])
         .map(pr=>({pr, m:mById[pr.match_id]}))
         .filter(x=>x.m)
         .sort((a,b)=> new Date(a.m.kickoff)-new Date(b.m.kickoff));
-      if(!list.length) return `<div class="nobets">No bets yet.</div>`;
-      return `<div class="betlist">`+list.map(({pr,m})=>{
+      const podHtml = podiumBetsHtml(pid);
+      if(!list.length) return podHtml || `<div class="nobets">No bets yet.</div>`;
+      return podHtml + `<div class="betlist">`+list.map(({pr,m})=>{
         const pt = points(m, pr.pred_home, pr.pred_away);
         const res = isFinal(m)
           ? (hasScore(m) ? `<span class="tag bl-res">FT ${m.home_score}–${m.away_score}</span>` : `<span class="tag bl-res">FT</span>`)

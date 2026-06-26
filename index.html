@@ -1587,7 +1587,7 @@ async function pollScores(){
   if(!MATCHES.some(m=> isLocked(m) && !isFinal(m))) return;
   try{ await loadMatches(); }catch(e){ return; }
   if($("#view-bet").classList.contains("active")){ refreshScoreBadges(); updateMatchCount(); }
-  else if($("#view-standings").classList.contains("active")) renderStandings();
+  else if($("#view-standings").classList.contains("active")) renderStandings(true);
 }
 setInterval(pollScores, 60000);
 // Testing helper: fill every open match in the current round with a random 0–4 score.
@@ -1646,8 +1646,8 @@ $("#saveBets").onclick = async ()=>{
 };
 
 /* ───────────── standings ───────────── */
-async function renderStandings(){
-  const box=$("#standings"); box.innerHTML=`<div class="loading">Loading…</div>`;
+async function renderStandings(silent){
+  const box=$("#standings"); if(!silent) box.innerHTML=`<div class="loading">Loading…</div>`;
   try{
     // payments are admin-only now (server-enforced), so the 5-tap Paid column
     // only renders for the organizer; the kicked-off-only SELECT policy on
@@ -1683,6 +1683,32 @@ async function renderStandings(){
     const rows=Object.entries(tally).map(([id,t])=>({id,...t}))
       .sort((a,b)=> b.pts-a.pts || b.exact-a.exact || a.nick.localeCompare(b.nick));
     if(!rows.length){ box.innerHTML=`<div class="empty">No players yet.</div>`; return; }
+    // Silent background poll: patch the live table in place rather than rebuilding it,
+    // so there's no Loading flash, no prize count-up replay, and expanded rows survive.
+    // Returns false — falling through to a full rebuild — when there's no table yet or
+    // the set of players changed (rare: someone joined/left between polls).
+    function patchStandings(rows, pool){
+      const tbody = box.querySelector("table tbody");
+      if(!tbody) return false;
+      const byId={}; tbody.querySelectorAll("tr.clickable").forEach(tr=> byId[tr.dataset.pid]=tr);
+      const want=rows.map(r=>String(r.id));
+      if(Object.keys(byId).length!==want.length || !want.every(id=> byId[id])) return false;
+      rows.forEach((r,i)=>{
+        const tr=byId[String(r.id)];
+        const rankTd=tr.querySelector("td.rank");
+        if(rankTd){ rankTd.textContent=i+1; rankTd.className="rank"+(i<5?" r"+(i+1):""); }
+        const tds=tr.children, n=tds.length; // Exact/Played/Pts are always the last three cells
+        tds[n-3].textContent=r.exact;
+        tds[n-2].textContent=r.played;
+        const total=tds[n-1].querySelector(".total"); if(total) total.textContent=r.pts;
+        // Paid cells are admin-only and may hold unsaved checkbox edits — leave them be.
+        const bets = (tr.nextElementSibling && tr.nextElementSibling.classList.contains("betsrow")) ? tr.nextElementSibling : null;
+        tbody.appendChild(tr); if(bets) tbody.appendChild(bets); // reorder to new sort, expansion in tow
+      });
+      const pe=box.querySelector("#prizeAmount"); if(pe) pe.textContent="€"+pool.toLocaleString();
+      return true;
+    }
+    if(silent && patchStandings(rows, players.length*20)) return;
     const paidHead = showPaid ? `<th class="num">Paid</th>` : "";
     const paidCell = r => !showPaid ? "" : (isAdmin
       ? `<td class="num"><input type="checkbox" class="paidbox" data-pid="${r.id}" ${paidById[r.id]?'checked':''}></td>`
@@ -1759,8 +1785,14 @@ async function renderStandings(){
         if(e.target.closest(".paidbox")) return; // don't toggle when the admin ticks Paid
         const next = tr.nextElementSibling;
         if(next && next.classList.contains("betsrow")){ next.remove(); tr.classList.remove("open"); return; }
+        // Accordion: collapse any other player's open bets before unfolding this one.
+        box.querySelectorAll("tr.betsrow").forEach(r=>r.remove());
+        box.querySelectorAll("tr.clickable.open").forEach(r=>r.classList.remove("open"));
         tr.classList.add("open");
         tr.insertAdjacentHTML("afterend", `<tr class="betsrow"><td colspan="${colCount}">${playerBetsHtml(tr.dataset.pid)}</td></tr>`);
+        // Scroll the bottom of the unfolded bets (latest bets) into view.
+        const betsrow = tr.nextElementSibling;
+        requestAnimationFrame(()=> betsrow.scrollIntoView({behavior:"smooth", block:"end"}));
       };
     });
     if(showPaid && isAdmin){

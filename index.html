@@ -295,16 +295,6 @@
     top:50%; width:11px; height:2px; background:var(--line)}
   /* 3rd-place match: standalone mini-cell under the tree */
   .bx-3rd{max-width:200px; margin:14px 0 0}
-  /* normal (list) knockout rounds: link each pair of matches with a branch elbow */
-  .ko-pair{display:grid; grid-template-columns:1fr 20px; align-items:center; margin-bottom:14px}
-  .ko-pair-cards{min-width:0}
-  .ko-pair-cards .match{margin-bottom:8px}
-  .ko-pair-cards > :last-child{margin-bottom:0}
-  .ko-pair-link{position:relative; align-self:stretch}
-  .ko-pair-link::before{content:""; position:absolute; left:0; top:25%; bottom:25%; width:10px;
-    border:2px solid var(--line); border-left:none; border-radius:0 8px 8px 0}
-  .ko-pair-link::after{content:""; position:absolute; left:10px; right:0; top:50%; height:2px;
-    background:var(--line); transform:translateY(-1px)}
   #loginToast{position:fixed; left:50%; transform:translateX(-50%); bottom:20px; z-index:60;
     background:var(--panel); border:1px solid var(--accent2); color:var(--accent2);
     padding:10px 16px; border-radius:10px; font-family:"Spline Sans Mono",monospace; font-size:13px;
@@ -651,6 +641,35 @@ const STAGE_ORDER = Object.keys(STAGES);
 // on these, and the bracket view is built from them.
 const KO_STAGES = ["R32","R16","QF","SF","3RD","FINAL"];
 const isKnockout = s => KO_STAGES.includes(s);
+
+// Canonical round-of-32 draw, top→bottom of the official bracket. Slot 0..15.
+// Names must match the DB (football-data.org) team strings exactly. Knockout matches
+// must be displayed in this bracket order (not by kickoff): once ordered, pairing
+// adjacent matches [2i,2i+1] reproduces the official wiring for every round.
+const R32_ORDER = [
+  ["Germany","Paraguay"], ["France","Sweden"],
+  ["South Africa","Canada"], ["Netherlands","Morocco"],
+  ["Portugal","Croatia"], ["Spain","Austria"],
+  ["United States","Bosnia-Herzegovina"], ["Belgium","Senegal"],
+  ["Brazil","Japan"], ["Ivory Coast","Norway"],
+  ["Mexico","Ecuador"], ["England","Congo DR"],
+  ["Argentina","Cape Verde Islands"], ["Australia","Egypt"],
+  ["Switzerland","Algeria"], ["Colombia","Ghana"],
+];
+const TEAM_SLOT = {};
+R32_ORDER.forEach((pair,i)=> pair.forEach(t=> TEAM_SLOT[t]=i));
+// R32 slot → round index: shift up the tree by the round's depth.
+const ROUND_SHIFT = {R32:0, R16:1, QF:2, SF:3, FINAL:4, "3RD":4};
+// Canonical bracket index of a KO match within its round. A later-round match is
+// placed by which R32 sub-tree its teams came from. Unknown/TBD → end.
+function bracketIndex(m){
+  const slot = TEAM_SLOT[m.home_team] ?? TEAM_SLOT[m.away_team];
+  if(slot==null) return 9999;
+  return slot >> (ROUND_SHIFT[m.stage] ?? 0);
+}
+// KO matches in bracket order (kickoff as a stable tiebreak).
+const koSorted = s => MATCHES.filter(m=>m.stage===s)
+  .sort((a,b)=> bracketIndex(a)-bracketIndex(b) || new Date(a.kickoff)-new Date(b.kickoff));
 
 /* ───────────── tiny supabase REST helper ───────────── */
 const rest = (path, opts={}) => fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -1496,23 +1515,12 @@ function paintBet(stage){
   view.classList.toggle("tree-mode", treeOn);
   if(treeOn){ paintTree(); return; }
   const loggedOut = !me;
+  // List view is always a flat chronological list (MATCHES is loaded kickoff.asc).
+  // Bracket order / pairing lives only in the tree view (paintTree).
   const ms = MATCHES.filter(m=>m.stage===stage);
   if(!ms.length){ list.innerHTML=`<div class="empty">No matches in this round yet.</div>`; $("#betActions").style.display="none"; return; }
   const allLocked = ms.every(isLocked);
-  // Knockout rounds: link each pair of matches (the two that feed the same next-round
-  // match) with a branch elbow. Group rounds and lone matches (Final, 3rd) stay flat.
-  const pairable = ko && stage!=="FINAL" && stage!=="3RD" && ms.length>1;
-  if(pairable){
-    const out=[];
-    for(let i=0;i<ms.length;i+=2){
-      const a=ms[i], b=ms[i+1];
-      out.push(`<div class="ko-pair"><div class="ko-pair-cards">${matchCardHtml(a)}${b?matchCardHtml(b):""}</div>`+
-        (b?`<div class="ko-pair-link"></div>`:"")+`</div>`);
-    }
-    list.innerHTML = out.join("");
-  } else {
-    list.innerHTML = ms.map(m=> matchCardHtml(m)).join("");
-  }
+  list.innerHTML = ms.map(m=> matchCardHtml(m)).join("");
   $("#betActions").style.display = (allLocked || loggedOut) ? "none" : "block";
   if(allLocked){ list.insertAdjacentHTML("afterbegin",`<div class="hint" style="margin-bottom:10px">All matches in this round have kicked off — bets are locked.</div>`); }
   if(!list.dataset.dirtyInit){
@@ -1574,9 +1582,8 @@ const TREE_ROUNDS = [["R32",16],["R16",8],["QF",4],["SF",2],["FINAL",1]];
 function paintTree(){
   const list=$("#matchList");
   $("#betActions").style.display="none";
-  const sortKO = s => MATCHES.filter(m=>m.stage===s).sort((a,b)=> new Date(a.kickoff)-new Date(b.kickoff));
   const cols = TREE_ROUNDS.map(([stage,n],ri)=>{
-    const games = sortKO(stage);
+    const games = koSorted(stage);
     const slots = Array.from({length:n}, (_,i)=> games[i] || null);
     const last = ri===TREE_ROUNDS.length-1;
     // Each round splits down the middle: the first n/2 slots are the top half of the
@@ -1592,7 +1599,7 @@ function paintTree(){
     }
     return `<div class="bx-round${last?' last':''}"><div class="bx-head">${STAGE_TABS[stage]||stage}</div><div class="bx-body">${body}</div></div>`;
   }).join("");
-  const third = sortKO("3RD")[0];
+  const third = koSorted("3RD")[0];
   const thirdHtml = `<div class="bx-3rd"><div class="bx-head">3rd place</div>${treeGame(third)}</div>`;
   list.innerHTML = `<div class="bx"><div class="bx-inner">${cols}</div></div>${thirdHtml}`;
 }

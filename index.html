@@ -261,7 +261,12 @@
   #view-bet.tree-mode .bet-sub,
   #view-bet.tree-mode #betActions{display:none !important}
   /* horizontal bracket: columns Last 32 → Final, scroll sideways on a phone */
-  .bx{display:flex; overflow-x:auto; padding:2px 2px 12px; -webkit-overflow-scrolling:touch}
+  .bx{overflow-x:auto; padding:2px 2px 12px; -webkit-overflow-scrolling:touch}
+  .bx-inner{display:flex; width:max-content; position:relative}
+  /* divider splitting the top and bottom halves; +11px offsets the 22px round-label row
+     so it lands on the bracket body's true centre (behind the Final box) */
+  .bx-inner::before{content:""; position:absolute; left:0; right:0; top:calc(50% + 11px);
+    border-top:1px dashed var(--line); z-index:0}
   .bx-round{display:flex; flex-direction:column; flex:0 0 138px; box-sizing:border-box;
     padding-right:22px; position:relative}
   .bx-round.last{flex-basis:116px; padding-right:0}
@@ -269,9 +274,12 @@
     text-transform:uppercase; color:var(--muted); font-family:"Spline Sans Mono",monospace}
   .bx-body{flex:1; display:flex; flex-direction:column; justify-content:space-around}
   .bx-matchup{flex:1; display:flex; flex-direction:column; justify-content:space-around; position:relative}
-  .bx-game{background:var(--panel2); border:1px solid var(--line); border-radius:9px;
-    padding:5px 0; margin:5px 0; min-height:40px}
-  .bx-game.empty{background:transparent; border-style:dashed; opacity:.5}
+  .bx-game{position:relative; z-index:1; background:var(--panel2); border:1px solid var(--line);
+    border-radius:9px; padding:5px 0; margin:5px 0; min-height:40px}
+  .bx-game.empty{background:var(--panel); border-style:dashed; opacity:.55}
+  /* half colour-coding: top half green, bottom half red, so the two sub-brackets read apart */
+  .bx-game.half-top{border-left:3px solid var(--accent)}
+  .bx-game.half-bot{border-left:3px solid var(--accent2)}
   .bx-team{display:flex; align-items:center; justify-content:space-between; gap:6px;
     padding:3px 8px; font-size:12px; color:var(--muted); min-width:0}
   .bx-team + .bx-team{border-top:1px solid var(--hairline)}
@@ -1550,12 +1558,13 @@ function paintBet(stage){
 }
 // One read-only match cell in the tree: two team rows with the final score, winner bold.
 // An absent match (round not drawn yet) renders an empty placeholder to keep the shape.
-function treeGame(m){
-  if(!m) return `<div class="bx-game empty"><div class="bx-team"></div><div class="bx-team"></div></div>`;
+function treeGame(m, half){
+  const hc = half ? ` half-${half}` : "";
+  if(!m) return `<div class="bx-game empty${hc}"><div class="bx-team"></div><div class="bx-team"></div></div>`;
   const fin = isFinal(m) && hasScore(m);
   const hw = fin && m.home_score>m.away_score, aw = fin && m.away_score>m.home_score;
   const row = (team,score,win)=>`<div class="bx-team${win?' win':''}"><span class="bx-name">${esc(team)}</span><span class="bx-sc">${fin?score:""}</span></div>`;
-  return `<div class="bx-game">${row(m.home_team,m.home_score,hw)}${row(m.away_team,m.away_score,aw)}</div>`;
+  return `<div class="bx-game${hc}">${row(m.home_team,m.home_score,hw)}${row(m.away_team,m.away_score,aw)}</div>`;
 }
 // Tree view: a read-only, minimalistic overview of the whole knockout bracket, laid out
 // as horizontal columns (Last 32 → Final) with connector lines. No bets. Each round has a
@@ -1570,19 +1579,22 @@ function paintTree(){
     const games = sortKO(stage);
     const slots = Array.from({length:n}, (_,i)=> games[i] || null);
     const last = ri===TREE_ROUNDS.length-1;
+    // Each round splits down the middle: the first n/2 slots are the top half of the
+    // bracket, the rest the bottom half (the two halves meet at the centred Final).
+    const half = j => last ? "" : (j < n/2 ? "top" : "bot");
     let body;
     if(last){
       body = `<div class="bx-matchup">${treeGame(slots[0])}</div>`;
     } else {
       const ms=[];
-      for(let i=0;i<slots.length;i+=2) ms.push(`<div class="bx-matchup">${treeGame(slots[i])}${treeGame(slots[i+1])}</div>`);
+      for(let i=0;i<slots.length;i+=2) ms.push(`<div class="bx-matchup">${treeGame(slots[i],half(i))}${treeGame(slots[i+1],half(i+1))}</div>`);
       body = ms.join("");
     }
     return `<div class="bx-round${last?' last':''}"><div class="bx-head">${STAGE_TABS[stage]||stage}</div><div class="bx-body">${body}</div></div>`;
   }).join("");
   const third = sortKO("3RD")[0];
   const thirdHtml = `<div class="bx-3rd"><div class="bx-head">3rd place</div>${treeGame(third)}</div>`;
-  list.innerHTML = `<div class="bx">${cols}</div>${thirdHtml}`;
+  list.innerHTML = `<div class="bx"><div class="bx-inner">${cols}</div></div>${thirdHtml}`;
 }
 // The 🏆 Podium bet: pick winner / finalist / 3rd / 4th from a type-to-filter team
 // list. Picks lock at PODIUM_LOCK (also enforced server-side). Once the admin sets

@@ -597,15 +597,15 @@
     <div class="ruleln"><span>Wrong</span><b class="pts p0">0 points</b></div>
 
     <div class="rules-section">Scoring rules — knockout (direct elimination)</div>
-    <div class="ruleln"><span>Exact score</span><b class="pts p3">7 points</b></div>
-    <div class="ruleln"><span>Correct outcome</span><b class="pts p1">3 points</b></div>
+    <div class="ruleln"><span>Exact score</span><b class="pts p3">5 points</b></div>
+    <div class="ruleln"><span>Correct outcome</span><b class="pts p1">2 points</b></div>
     <div class="ruleln"><span>Wrong</span><b class="pts p0">0 points</b></div>
 
     <div class="rules-section">Podium bet 🏆</div>
-    <div class="ruleln"><span>Winner</span><b class="pts p3">5 points</b></div>
-    <div class="ruleln"><span>Finalist (runner-up)</span><b class="pts p3">3 points</b></div>
-    <div class="ruleln"><span>3rd place</span><b class="pts p3">2 points</b></div>
-    <div class="ruleln"><span>4th place</span><b class="pts p3">2 points</b></div>
+    <div class="ruleln"><span>Winner</span><b class="pts p3">10 points</b></div>
+    <div class="ruleln"><span>Finalist (runner-up)</span><b class="pts p3">8 points</b></div>
+    <div class="ruleln"><span>3rd place</span><b class="pts p3">6 points</b></div>
+    <div class="ruleln"><span>4th place</span><b class="pts p3">6 points</b></div>
     <ul class="rulelist">
       <li>In the 🏆 Podium tab, predict the tournament's final standings. Points are awarded only for an exact placement match. Picks lock on 4 July (end of the Round of 32).</li>
     </ul>
@@ -732,10 +732,10 @@ const isLocked = m => new Date(m.kickoff) <= new Date(); // each match locks at 
 const PODIUM_LOCK = new Date("2026-07-04T23:59:00Z");
 const podiumLocked = () => new Date() >= PODIUM_LOCK;
 const PODIUM_SLOTS = [ // slot key, label, points for an exact hit
-  {key:"winner",   label:"🏆 Winner",    pts:5},
-  {key:"finalist", label:"🥈 Finalist",  pts:3},
-  {key:"third",    label:"🥉 3rd place", pts:2},
-  {key:"fourth",   label:"4️⃣ 4th place", pts:2}
+  {key:"winner",   label:"🏆 Winner",    pts:10},
+  {key:"finalist", label:"🥈 Finalist",  pts:8},
+  {key:"third",    label:"🥉 3rd place", pts:6},
+  {key:"fourth",   label:"4️⃣ 4th place", pts:6}
 ];
 // Exact-position scoring: each slot scores only if it equals the actual placement.
 function podiumPoints(bet, res){
@@ -760,13 +760,13 @@ function betOutcome(m, ph, pa){
   if(ph===m.home_score && pa===m.away_score) return 'exact';
   return Math.sign(m.home_score-m.away_score)===Math.sign(ph-pa) ? 'dir' : 'wrong';
 }
-// Knockout (direct-elimination) matches award more: 7 exact / 3 direction. Group: 3 / 1.
+// Knockout (direct-elimination) matches award more: 5 exact / 2 direction. Group: 3 / 1.
 function points(m, ph, pa){
   const o = betOutcome(m, ph, pa);
   if(o==null) return null;
   const ko = isKnockout(m.stage);
-  if(o==='exact') return ko ? 7 : 3;
-  if(o==='dir')   return ko ? 3 : 1;
+  if(o==='exact') return ko ? 5 : 3;
+  if(o==='dir')   return ko ? 2 : 1;
   return 0;
 }
 // Map outcome -> existing CSS colour bucket (accent / gold / muted).

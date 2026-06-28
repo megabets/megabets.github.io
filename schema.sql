@@ -141,7 +141,7 @@ revoke all on table payments from anon, authenticated;
 --   create policy "update matches" on matches for update using (true);  -- ⚠ insecure, leave off
 
 -- ── Podium bet (winner / finalist / 3rd / 4th) ───────────
--- Tournament-wide bet, scored on exact final placement (5/3/2/2). Defined in
+-- Tournament-wide bet, scored on exact final placement (10/8/6/6). Defined in
 -- full — tables, RLS, and RPCs — in sql/04_podium.sql; mirrored here so a fresh
 -- install matches the live DB. Run sql/04_podium.sql to create the RPCs.
 create table if not exists podium_bets (

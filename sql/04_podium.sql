@@ -3,7 +3,7 @@
 -- Editor. Requires sql/01_lockdown_setup.sql (auth_player, auth_admin) already run.
 --
 -- One tournament-wide bet per player, scored on EXACT final placement:
---   winner = 5 pts, finalist (runner-up) = 3, 3rd = 2, 4th = 2.
+--   winner = 10 pts, finalist (runner-up) = 8, 3rd = 6, 4th = 6.
 -- Picks lock at the hard-coded deadline below (anticipated end of the Round of 32);
 -- the lock is server-enforced in podium_save, the analogue of the kickoff > now()
 -- guard in preds_save. The same timestamp gates the public read policy so nobody

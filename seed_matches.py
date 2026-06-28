@@ -60,6 +60,18 @@ def _kickoff_done(utc_date, now=None):
         ko = ko.replace(tzinfo=timezone.utc)
     return (now or datetime.now(timezone.utc)) - ko > STALE_AFTER
 
+def ninety_minute_score(m):
+    """The score after 90' (regulation). football-data.org's fullTime is the
+    cumulative result incl. extra time + penalties, so prefer regularTime
+    (the 90' result) and fall back to fullTime for matches that ended in
+    regulation, where the two are identical."""
+    score = m.get("score") or {}
+    rt = score.get("regularTime") or {}
+    if rt.get("home") is not None and rt.get("away") is not None:
+        return rt.get("home"), rt.get("away")
+    ft = score.get("fullTime") or {}
+    return ft.get("home"), ft.get("away")
+
 def map_stage(m):
     st = m.get("stage", "")
     if st == "GROUP_STAGE":
@@ -89,8 +101,7 @@ def fetch_matches():
         sys.exit(f"football-data error {r.status_code}: {r.text[:300]}")
 
 def to_row(m, now=None):
-    ft = (m.get("score") or {}).get("fullTime") or {}
-    home_score, away_score = ft.get("home"), ft.get("away")
+    home_score, away_score = ninety_minute_score(m)
     status = m.get("status", "SCHEDULED")
     # Auto-heal a source that has the score but never advanced the status (see note above).
     if (home_score is not None and away_score is not None
@@ -127,8 +138,7 @@ def main():
     # Surface how many rows we auto-promoted to FINISHED (source had score but stale status).
     healed = sum(1 for m in raw
                  if m.get("status") in LIVE_OR_SCHEDULED
-                 and (m.get("score") or {}).get("fullTime", {}).get("home") is not None
-                 and (m.get("score") or {}).get("fullTime", {}).get("away") is not None
+                 and None not in ninety_minute_score(m)
                  and _kickoff_done(m.get("utcDate"), now))
     if healed:
         print(f"Auto-healed {healed} match(es) to FINISHED (score present, status was stale).")

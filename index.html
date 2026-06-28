@@ -85,7 +85,7 @@
   .backdrop{position:fixed; inset:0; background:rgba(5,8,12,.7); backdrop-filter:blur(3px);
     display:none; align-items:flex-start; justify-content:center; padding:80px 18px 18px; z-index:50}
   .backdrop.open{display:flex; animation:fade .2s ease}
-  .modal{position:relative; width:100%; max-width:460px}
+  .modal{position:relative; width:100%; max-width:460px; max-height:calc(100vh - 98px); overflow-y:auto}
   .modal-close{position:absolute; top:12px; right:14px; background:transparent; border:0; color:var(--muted);
     font-size:24px; line-height:1; cursor:pointer; padding:0}
   .modal-close:hover{color:var(--ink)}
@@ -172,7 +172,9 @@
     color:var(--muted); font-family:inherit; font-weight:600; font-size:13px; padding:8px 14px;
     border-radius:9px; cursor:pointer; white-space:nowrap; transition:.15s}
   .roundtabs button.active{background:var(--accent-strong); border-color:var(--accent-strong); color:var(--on-accent-strong)}
-  .roundtabs button:hover:not(.active){color:var(--ink); background:var(--line)}
+  .roundtabs button:hover:not(.active):not(.preview){color:var(--ink); background:var(--line)}
+  /* next round, not yet drawn — disabled placeholder until its first match exists */
+  .roundtabs button.preview{opacity:.45; cursor:not-allowed; font-style:italic}
   /* "Past" dropdown subtab — groups finished rounds to keep the strip short */
   .roundtabs-past{position:relative; flex:0 0 auto}
   #pastToggle .caret{display:inline-block; transition:transform .15s ease; font-size:10px}
@@ -244,6 +246,57 @@
   .pod-admin{margin-top:22px; padding-top:18px; border-top:1px dashed var(--line)}
   /* logged-out: tapping a score square turns both squares of that match red, not the usual green */
   .match .score:focus-within input[readonly]{border-color:var(--accent2)}
+  /* bet header: title on the left, list/tree layout toggle on the right */
+  .bet-head{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap}
+  .layout-toggle{display:flex; flex:0 0 auto; border:1px solid var(--line); border-radius:8px; overflow:hidden}
+  .layout-toggle[hidden]{display:none}
+  .layout-toggle button{background:var(--panel2); border:none; color:var(--muted); cursor:pointer;
+    font-family:inherit; font-size:12.5px; padding:7px 11px; white-space:nowrap; transition:.15s}
+  .layout-toggle button.active{background:var(--accent-strong); color:var(--on-accent-strong)}
+  .layout-toggle button:not(.active):hover{color:var(--ink); background:var(--line)}
+  /* Tree view = read-only, minimalistic overview of the whole knockout bracket.
+     Hide the betting chrome (round tabs, auto-fill, intro, Save) while it's on. */
+  #view-bet.tree-mode #roundTabs,
+  #view-bet.tree-mode #autoFillRow,
+  #view-bet.tree-mode .bet-sub,
+  #view-bet.tree-mode #betActions{display:none !important}
+  /* horizontal bracket: columns Last 32 → Final, scroll sideways on a phone */
+  .bx{display:flex; overflow-x:auto; padding:2px 2px 12px; -webkit-overflow-scrolling:touch}
+  .bx-round{display:flex; flex-direction:column; flex:0 0 138px; box-sizing:border-box;
+    padding-right:22px; position:relative}
+  .bx-round.last{flex-basis:116px; padding-right:0}
+  .bx-head{height:22px; display:flex; align-items:center; font-size:10.5px; letter-spacing:.05em;
+    text-transform:uppercase; color:var(--muted); font-family:"Spline Sans Mono",monospace}
+  .bx-body{flex:1; display:flex; flex-direction:column; justify-content:space-around}
+  .bx-matchup{flex:1; display:flex; flex-direction:column; justify-content:space-around; position:relative}
+  .bx-game{background:var(--panel2); border:1px solid var(--line); border-radius:9px;
+    padding:5px 0; margin:5px 0; min-height:40px}
+  .bx-game.empty{background:transparent; border-style:dashed; opacity:.5}
+  .bx-team{display:flex; align-items:center; justify-content:space-between; gap:6px;
+    padding:3px 8px; font-size:12px; color:var(--muted); min-width:0}
+  .bx-team + .bx-team{border-top:1px solid var(--hairline)}
+  .bx-team.win{color:var(--ink); font-weight:700}
+  .bx-name{white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .bx-sc{font-family:"Spline Sans Mono",monospace; flex-shrink:0}
+  /* connectors: drawn in each non-final round's 22px right gutter */
+  .bx-round:not(.last) .bx-game::after{content:""; position:absolute; left:100%; top:50%;
+    width:11px; height:2px; background:var(--line)}
+  .bx-round:not(.last) .bx-matchup::before{content:""; position:absolute; left:100%; margin-left:11px;
+    top:25%; height:50%; width:2px; background:var(--line)}
+  .bx-round:not(.last) .bx-matchup::after{content:""; position:absolute; left:100%; margin-left:11px;
+    top:50%; width:11px; height:2px; background:var(--line)}
+  /* 3rd-place match: standalone mini-cell under the tree */
+  .bx-3rd{max-width:200px; margin:14px 0 0}
+  /* normal (list) knockout rounds: link each pair of matches with a branch elbow */
+  .ko-pair{display:grid; grid-template-columns:1fr 20px; align-items:center; margin-bottom:14px}
+  .ko-pair-cards{min-width:0}
+  .ko-pair-cards .match{margin-bottom:8px}
+  .ko-pair-cards > :last-child{margin-bottom:0}
+  .ko-pair-link{position:relative; align-self:stretch}
+  .ko-pair-link::before{content:""; position:absolute; left:0; top:25%; bottom:25%; width:10px;
+    border:2px solid var(--line); border-left:none; border-radius:0 8px 8px 0}
+  .ko-pair-link::after{content:""; position:absolute; left:10px; right:0; top:50%; height:2px;
+    background:var(--line); transform:translateY(-1px)}
   #loginToast{position:fixed; left:50%; transform:translateX(-50%); bottom:20px; z-index:60;
     background:var(--panel); border:1px solid var(--accent2); color:var(--accent2);
     padding:10px 16px; border-radius:10px; font-family:"Spline Sans Mono",monospace; font-size:13px;
@@ -387,11 +440,17 @@
   <!-- BET -->
   <section class="view active" id="view-bet">
     <div class="card">
-      <h2 class="bet-title">Place your bets <span class="matchcount" id="matchCount"></span></h2>
-      <div style="display:flex; gap:8px">
+      <div class="bet-head">
+        <h2 class="bet-title">Place your bets <span class="matchcount" id="matchCount"></span></h2>
+        <div class="layout-toggle" id="layoutToggle" hidden>
+          <button type="button" data-layout="list" class="active">☰ List</button>
+          <button type="button" data-layout="bracket">🌳 Tree</button>
+        </div>
+      </div>
+      <div id="autoFillRow" style="display:flex; gap:8px">
         <button class="btn sec" id="fillRandom" style="padding:8px 12px; font-size:13px">🎲 Auto-fill empty bets</button>
       </div>
-      <p class="sub">Predict the final score of each match. Each match locks at its kickoff — you can change your bet until then.</p>
+      <p class="sub bet-sub">Predict the final score of each match. Each match locks at its kickoff — you can change your bet until then.</p>
       <div class="roundtabs" id="roundTabs"></div>
       <div id="matchList"><div class="loading">Loading matches…</div></div>
       <div id="betActions" style="margin-top:14px; display:none">
@@ -524,9 +583,14 @@
     <button class="modal-close" id="rulesClose" aria-label="Close">×</button>
     <h2>Rules</h2>
 
-    <div class="rules-section">Scoring rules</div>
+    <div class="rules-section">Scoring rules — group phase</div>
     <div class="ruleln"><span>Exact score</span><b class="pts p3">3 points</b></div>
     <div class="ruleln"><span>Correct outcome</span><b class="pts p1">1 point</b></div>
+    <div class="ruleln"><span>Wrong</span><b class="pts p0">0 points</b></div>
+
+    <div class="rules-section">Scoring rules — knockout (direct elimination)</div>
+    <div class="ruleln"><span>Exact score</span><b class="pts p3">7 points</b></div>
+    <div class="ruleln"><span>Correct outcome</span><b class="pts p1">3 points</b></div>
     <div class="ruleln"><span>Wrong</span><b class="pts p0">0 points</b></div>
 
     <div class="rules-section">Podium bet 🏆</div>
@@ -543,6 +607,7 @@
       <li>Place your bet on each match before that match kicks off — you can update it until kickoff. Once a match starts, your bet for it is locked.</li>
       <li>If you don't place a bet before kickoff, you score 0 points for that match.</li>
       <li>On the leaderboard, ties are broken by most exact-score hits, then by most correct outcomes.</li>
+      <li>Knockout matches are settled on the score after 90 minutes (regulation). Extra time and penalty shootouts don't count toward your bet.</li>
       <li>If a match is postponed or cancelled, bets on it carry over to its rescheduled date.</li>
     </ul>
 
@@ -574,6 +639,10 @@ const STAGES = {
   SF:"Semi-finals", "3RD":"Third place", FINAL:"Final"
 };
 const STAGE_ORDER = Object.keys(STAGES);
+// Knockout rounds (everything past the group phase). The list/tree toggle only shows
+// on these, and the bracket view is built from them.
+const KO_STAGES = ["R32","R16","QF","SF","3RD","FINAL"];
+const isKnockout = s => KO_STAGES.includes(s);
 
 /* ───────────── tiny supabase REST helper ───────────── */
 const rest = (path, opts={}) => fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -677,12 +746,24 @@ const podiumTeams = () => [...new Set(MATCHES.flatMap(m=>[m.home_team, m.away_te
 const FINAL_STATES = new Set(["FINISHED","AWARDED"]);
 const isFinal  = m => FINAL_STATES.has(m.status);
 const hasScore = m => m.home_score!=null && m.away_score!=null;
-function points(m, ph, pa){
+// Outcome category, independent of the point value: 'exact' | 'dir' | 'wrong' | null.
+function betOutcome(m, ph, pa){
   if(!isFinal(m)||!hasScore(m)||ph==null||pa==null) return null;
-  if(ph===m.home_score && pa===m.away_score) return 3;
-  const ao=Math.sign(m.home_score-m.away_score), po=Math.sign(ph-pa);
-  return ao===po ? 1 : 0;
+  if(ph===m.home_score && pa===m.away_score) return 'exact';
+  return Math.sign(m.home_score-m.away_score)===Math.sign(ph-pa) ? 'dir' : 'wrong';
 }
+// Knockout (direct-elimination) matches award more: 7 exact / 3 direction. Group: 3 / 1.
+function points(m, ph, pa){
+  const o = betOutcome(m, ph, pa);
+  if(o==null) return null;
+  const ko = isKnockout(m.stage);
+  if(o==='exact') return ko ? 7 : 3;
+  if(o==='dir')   return ko ? 3 : 1;
+  return 0;
+}
+// Map outcome -> existing CSS colour bucket (accent / gold / muted).
+const PTS_CLS = { exact:'p3', dir:'p1', wrong:'p0' };
+function ptsCls(m, ph, pa){ const o=betOutcome(m,ph,pa); return o ? PTS_CLS[o] : null; }
 // Client-side PIN hash: SHA-256 of "nickname:pin" (nickname salts it so the same
 // PIN on different nicknames yields different hashes). The hash is the RPC
 // credential (me.auth) — the server compares it to players.pin_hash, which the
@@ -1206,6 +1287,7 @@ const STAGE_TABS = {
 };
 let currentStage = "";          // resolved on first bet render to the next match's stage
 let stageInited = false;
+let betLayout = "list";         // "list" | "bracket" — bracket only available on KO stages
 // Stage of the next scheduled match (earliest kickoff still in the future).
 // MATCHES is sorted kickoff.asc, so the first not-yet-locked match is the next one.
 // Fallback when nothing is upcoming: the last stage that has matches.
@@ -1230,6 +1312,11 @@ function fillRoundTabs(container){
   if(!present.includes(currentStage) && currentStage!=="PODIUM") currentStage = (activeStages[0] || present[0]);
   // Past dropdown (leftmost): the toggle relabels to the selected past round and goes
   // active when one is showing; the menu lists each finished round as a data-stage button.
+  // The round right after the furthest one that has fixtures, shown as a disabled
+  // placeholder until its first match is drawn (one team through → it activates).
+  const lastIdx = STAGE_ORDER.indexOf(present[present.length-1]);
+  const previewStage = (lastIdx+1 < STAGE_ORDER.length) ? STAGE_ORDER[lastIdx+1] : null;
+  const previewHTML = previewStage ? `<button type="button" class="preview" disabled aria-disabled="true" title="Not drawn yet">${STAGE_TABS[previewStage]||previewStage}</button>` : "";
   const selPast = pastStages.includes(currentStage) ? currentStage : null;
   const pastLabel = selPast ? (STAGE_TABS[selPast]||selPast) : "Past";
   const pastHTML = pastStages.length ? `<div class="roundtabs-past" id="pastWrap">`+
@@ -1241,7 +1328,7 @@ function fillRoundTabs(container){
   // The 🏆 podium bet is always available (a pseudo-stage appended after the rounds).
   container.innerHTML = pastHTML + activeStages.map(s=>
     `<button type="button" data-stage="${s}" class="${s===currentStage?'active':''}">${STAGE_TABS[s]||s}</button>`
-  ).join("") +
+  ).join("") + previewHTML +
     `<button type="button" data-stage="PODIUM" class="${currentStage==="PODIUM"?'active':''}">🏆 Podium</button>`;
 }
 
@@ -1319,7 +1406,7 @@ function matchBadgeHtml(m){
   else if(mLock) tag=`<span class="tag live">locked</span>`;
   let ptsHtml="";
   const p = MY_PREDS[m.id]||{};
-  if(final && p.pred_home!=null){ const pt=points(m,p.pred_home,p.pred_away); if(pt!=null) ptsHtml=`<span class="pts p${pt}">+${pt} pts</span>`; }
+  if(final && p.pred_home!=null){ const pt=points(m,p.pred_home,p.pred_away); if(pt!=null) ptsHtml=`<span class="pts ${ptsCls(m,p.pred_home,p.pred_away)}">+${pt} pts</span>`; }
   return tag+ptsHtml;
 }
 // Every player's prediction for one (locked) match. Bettors first — ranked by
@@ -1367,17 +1454,13 @@ function teamHistoryHtml(team, currentId){
       <span class="mb-right"><span class="th-score">${gf}–${ga}</span><span class="th-res ${cls}">${res}</span></span></div>`;
   }).join("");
 }
-function paintBet(stage){
-  const list=$("#matchList");
-  if(stage==="PODIUM"){ paintPodium(); return; }
+// A single betting match card (.match[data-id]) with inputs, badge and the team-history
+// / "See bets" hooks. Used by the list view (flat and the knockout pair layout).
+function matchCardHtml(m){
+  const p = MY_PREDS[m.id]||{};
+  const mLock = isLocked(m);
   const loggedOut = !me;
-  const ms = MATCHES.filter(m=>m.stage===stage);
-  if(!ms.length){ list.innerHTML=`<div class="empty">No matches in this round yet.</div>`; $("#betActions").style.display="none"; return; }
-  const allLocked = ms.every(isLocked);
-  list.innerHTML = ms.map(m=>{
-    const p = MY_PREDS[m.id]||{};
-    const mLock = isLocked(m);
-    return `<div class="match ${mLock?'locked':''}" data-id="${m.id}">
+  return `<div class="match ${mLock?'locked':''}" data-id="${m.id}">
       <div class="team teamtap" data-team="${esc(m.home_team)}">${esc(m.home_team)}</div>
       <div class="score">
         <input type="number" min="0" max="30" class="ph" value="${p.pred_home??""}" ${mLock?'disabled':loggedOut?'readonly':''}/>
@@ -1388,7 +1471,40 @@ function paintBet(stage){
       <div class="meta"><span>${fmtKO(m.kickoff)}</span><span>${matchBadgeHtml(m)}</span></div>
       ${(mLock || (showAllBets && isAdmin())) ? `<button type="button" class="betsbar"><span class="caret">▸</span> See bets (${Object.keys(PREDS_BY_MATCH[m.id]||{}).length})</button>` : ``}
     </div>`;
-  }).join("");
+}
+function paintBet(stage){
+  const list=$("#matchList");
+  const toggle=$("#layoutToggle");
+  const view=$("#view-bet");
+  if(stage==="PODIUM"){ if(toggle) toggle.hidden=true; view.classList.remove("tree-mode"); paintPodium(); return; }
+  // The list/tree toggle only applies to knockout rounds; outside them, force list.
+  const ko = isKnockout(stage);
+  const treeOn = ko && betLayout==="bracket";
+  if(toggle){
+    toggle.hidden = !ko;
+    if(!ko) betLayout="list";
+    toggle.querySelectorAll("button").forEach(b=> b.classList.toggle("active", b.dataset.layout===betLayout));
+  }
+  view.classList.toggle("tree-mode", treeOn);
+  if(treeOn){ paintTree(); return; }
+  const loggedOut = !me;
+  const ms = MATCHES.filter(m=>m.stage===stage);
+  if(!ms.length){ list.innerHTML=`<div class="empty">No matches in this round yet.</div>`; $("#betActions").style.display="none"; return; }
+  const allLocked = ms.every(isLocked);
+  // Knockout rounds: link each pair of matches (the two that feed the same next-round
+  // match) with a branch elbow. Group rounds and lone matches (Final, 3rd) stay flat.
+  const pairable = ko && stage!=="FINAL" && stage!=="3RD" && ms.length>1;
+  if(pairable){
+    const out=[];
+    for(let i=0;i<ms.length;i+=2){
+      const a=ms[i], b=ms[i+1];
+      out.push(`<div class="ko-pair"><div class="ko-pair-cards">${matchCardHtml(a)}${b?matchCardHtml(b):""}</div>`+
+        (b?`<div class="ko-pair-link"></div>`:"")+`</div>`);
+    }
+    list.innerHTML = out.join("");
+  } else {
+    list.innerHTML = ms.map(m=> matchCardHtml(m)).join("");
+  }
   $("#betActions").style.display = (allLocked || loggedOut) ? "none" : "block";
   if(allLocked){ list.insertAdjacentHTML("afterbegin",`<div class="hint" style="margin-bottom:10px">All matches in this round have kicked off — bets are locked.</div>`); }
   if(!list.dataset.dirtyInit){
@@ -1431,6 +1547,42 @@ function paintBet(stage){
     list.dataset.dirtyInit="1";
   }
   updateBetDirty();
+}
+// One read-only match cell in the tree: two team rows with the final score, winner bold.
+// An absent match (round not drawn yet) renders an empty placeholder to keep the shape.
+function treeGame(m){
+  if(!m) return `<div class="bx-game empty"><div class="bx-team"></div><div class="bx-team"></div></div>`;
+  const fin = isFinal(m) && hasScore(m);
+  const hw = fin && m.home_score>m.away_score, aw = fin && m.away_score>m.home_score;
+  const row = (team,score,win)=>`<div class="bx-team${win?' win':''}"><span class="bx-name">${esc(team)}</span><span class="bx-sc">${fin?score:""}</span></div>`;
+  return `<div class="bx-game">${row(m.home_team,m.home_score,hw)}${row(m.away_team,m.away_score,aw)}</div>`;
+}
+// Tree view: a read-only, minimalistic overview of the whole knockout bracket, laid out
+// as horizontal columns (Last 32 → Final) with connector lines. No bets. Each round has a
+// fixed slot count so the tree keeps its shape before later rounds are drawn; matches are
+// placed in kickoff order, paired [2i,2i+1] into the next round (same wiring as the list).
+const TREE_ROUNDS = [["R32",16],["R16",8],["QF",4],["SF",2],["FINAL",1]];
+function paintTree(){
+  const list=$("#matchList");
+  $("#betActions").style.display="none";
+  const sortKO = s => MATCHES.filter(m=>m.stage===s).sort((a,b)=> new Date(a.kickoff)-new Date(b.kickoff));
+  const cols = TREE_ROUNDS.map(([stage,n],ri)=>{
+    const games = sortKO(stage);
+    const slots = Array.from({length:n}, (_,i)=> games[i] || null);
+    const last = ri===TREE_ROUNDS.length-1;
+    let body;
+    if(last){
+      body = `<div class="bx-matchup">${treeGame(slots[0])}</div>`;
+    } else {
+      const ms=[];
+      for(let i=0;i<slots.length;i+=2) ms.push(`<div class="bx-matchup">${treeGame(slots[i])}${treeGame(slots[i+1])}</div>`);
+      body = ms.join("");
+    }
+    return `<div class="bx-round${last?' last':''}"><div class="bx-head">${STAGE_TABS[stage]||stage}</div><div class="bx-body">${body}</div></div>`;
+  }).join("");
+  const third = sortKO("3RD")[0];
+  const thirdHtml = `<div class="bx-3rd"><div class="bx-head">3rd place</div>${treeGame(third)}</div>`;
+  list.innerHTML = `<div class="bx">${cols}</div>${thirdHtml}`;
 }
 // The 🏆 Podium bet: pick winner / finalist / 3rd / 4th from a type-to-filter team
 // list. Picks lock at PODIUM_LOCK (also enforced server-side). Once the admin sets
@@ -1586,7 +1738,11 @@ async function pollScores(){
   if(document.visibilityState!=="visible" || !scoresActive()) return;
   if(!MATCHES.some(m=> isLocked(m) && !isFinal(m))) return;
   try{ await loadMatches(); }catch(e){ return; }
-  if($("#view-bet").classList.contains("active")){ refreshScoreBadges(); updateMatchCount(); }
+  if($("#view-bet").classList.contains("active")){
+    if($("#view-bet").classList.contains("tree-mode")) paintTree();   // overview re-renders whole tree
+    else refreshScoreBadges();
+    updateMatchCount();
+  }
   else if($("#view-standings").classList.contains("active")) renderStandings(true);
 }
 setInterval(pollScores, 60000);
@@ -1609,6 +1765,12 @@ function doAutoFill(){
   const msg=$("#betMsg"); msg.className="msg"; msg.textContent="Filled empty bets with random scores. Review then Submit round.";
   updateBetDirty();
 }
+$("#layoutToggle").addEventListener("click", e=>{
+  const b=e.target.closest("button[data-layout]");
+  if(!b || b.dataset.layout===betLayout) return;
+  betLayout=b.dataset.layout;
+  paintBet(currentStage);
+});
 $("#fillRandom").onclick = ()=>{
   const n=countEmptyMatches();
   if(n===0){
@@ -1675,7 +1837,7 @@ async function renderStandings(silent){
       const m=mById[pr.match_id]; if(!m) return;
       const pt=points(m, pr.pred_home, pr.pred_away); if(pt==null) return;
       const t=tally[pr.player_id]; if(!t) return;
-      t.pts+=pt; t.played++; if(pt===3) t.exact++;
+      t.pts+=pt; t.played++; if(betOutcome(m, pr.pred_home, pr.pred_away)==='exact') t.exact++;
     });
     // Podium bet adds to the total only once the actual result is set (5/3/2/2 for
     // exact placement). It doesn't affect the Exact/Played match counters.
@@ -1769,8 +1931,9 @@ async function renderStandings(silent){
           : !isLocked(m) ? `<span class="tag open bl-res">soon</span>`            // not yet kicked off (admin-revealed)
           : hasScore(m) ? `<span class="tag live bl-res">LIVE ${m.home_score}–${m.away_score}</span>`
           : `<span class="tag live bl-res">live</span>`;
-        const betCls = pt==null ? "" : `pts p${pt}`; // bet takes the colour of the points earned
-        const ptsHtml = pt==null ? `<span class="pts p0">—</span>` : `<span class="pts p${pt}">+${pt}</span>`;
+        const cls = ptsCls(m, pr.pred_home, pr.pred_away);
+        const betCls = pt==null ? "" : `pts ${cls}`; // bet takes the colour of the points earned
+        const ptsHtml = pt==null ? `<span class="pts p0">—</span>` : `<span class="pts ${cls}">+${pt}</span>`;
         return `<div class="betline">
           <div class="bl-match">
             <span class="bl-stage">${esc(STAGES[m.stage]||m.stage)}</span>

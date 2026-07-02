@@ -45,10 +45,20 @@ STAGE_MAP = {
 # settles points. Only promote from these scheduled/live states — never override a
 # POSTPONED/CANCELLED/SUSPENDED row (or one already FINISHED/AWARDED).
 LIVE_OR_SCHEDULED = {"SCHEDULED", "TIMED", "IN_PLAY", "PAUSED"}
-# Comfortably past full time even with extra time + penalties for knockout games.
-STALE_AFTER = timedelta(hours=3, minutes=30)
+# How long after kickoff a match must be over, so the auto-heal below can safely
+# promote a stuck status to FINISHED. Group games can't go to extra time, so ~2h
+# (90' + stoppage + halftime) is comfortably past full time. Knockouts may run to
+# extra time + penalties, which still finishes by ~kickoff+2h45, so 3h keeps a safe
+# margin. Kept conservative on purpose: we'd rather show LIVE a bit too long than
+# settle points on a match that's still being played.
+GROUP_STALE = timedelta(hours=2)
+KO_STALE    = timedelta(hours=3)
 
-def _kickoff_done(utc_date, now=None):
+def _stale_for(stage):
+    """The safe post-kickoff window for a stage code (group 'MD*' vs. knockout)."""
+    return GROUP_STALE if str(stage).startswith("MD") else KO_STALE
+
+def _kickoff_done(utc_date, stage, now=None):
     """True if the kickoff is far enough in the past that the match must be over."""
     if not utc_date:
         return False
@@ -58,7 +68,7 @@ def _kickoff_done(utc_date, now=None):
         return False
     if ko.tzinfo is None:
         ko = ko.replace(tzinfo=timezone.utc)
-    return (now or datetime.now(timezone.utc)) - ko > STALE_AFTER
+    return (now or datetime.now(timezone.utc)) - ko > _stale_for(stage)
 
 def ninety_minute_score(m):
     """The score after 90' (regulation). football-data.org's fullTime is the
@@ -108,13 +118,14 @@ def fetch_matches():
 def to_row(m, now=None):
     home_score, away_score = ninety_minute_score(m)
     status = m.get("status", "SCHEDULED")
+    stage = map_stage(m)
     # Auto-heal a source that has the score but never advanced the status (see note above).
     if (home_score is not None and away_score is not None
-            and status in LIVE_OR_SCHEDULED and _kickoff_done(m.get("utcDate"), now)):
+            and status in LIVE_OR_SCHEDULED and _kickoff_done(m.get("utcDate"), stage, now)):
         status = "FINISHED"
     return {
         "id": m["id"],
-        "stage": map_stage(m),
+        "stage": stage,
         "home_team": (m.get("homeTeam") or {}).get("name") or "TBD",
         "away_team": (m.get("awayTeam") or {}).get("name") or "TBD",
         "kickoff": m["utcDate"],
@@ -144,7 +155,7 @@ def main():
     healed = sum(1 for m in raw
                  if m.get("status") in LIVE_OR_SCHEDULED
                  and None not in ninety_minute_score(m)
-                 and _kickoff_done(m.get("utcDate"), now))
+                 and _kickoff_done(m.get("utcDate"), map_stage(m), now))
     if healed:
         print(f"Auto-healed {healed} match(es) to FINISHED (score present, status was stale).")
     # skip rows with no real teams yet AND no useful info (keep TBD knockout slots out)

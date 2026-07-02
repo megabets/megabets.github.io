@@ -63,14 +63,19 @@ def _kickoff_done(utc_date, now=None):
 def ninety_minute_score(m):
     """The score after 90' (regulation). football-data.org's fullTime is the
     cumulative result incl. extra time + penalties, so prefer regularTime
-    (the 90' result) and fall back to fullTime for matches that ended in
-    regulation, where the two are identical."""
+    (the 90' result). fullTime equals the 90' score ONLY when the match ended
+    in regulation, so fall back to it just for duration REGULAR (or absent).
+    For EXTRA_TIME/PENALTY_SHOOTOUT with no regularTime yet (source lag right
+    after the whistle), return None so the row is flagged (see main's WARN)
+    and left untouched, rather than silently stored as the post-90' score."""
     score = m.get("score") or {}
     rt = score.get("regularTime") or {}
     if rt.get("home") is not None and rt.get("away") is not None:
         return rt.get("home"), rt.get("away")
-    ft = score.get("fullTime") or {}
-    return ft.get("home"), ft.get("away")
+    if score.get("duration") in (None, "REGULAR"):
+        ft = score.get("fullTime") or {}
+        return ft.get("home"), ft.get("away")
+    return None, None
 
 def map_stage(m):
     st = m.get("stage", "")

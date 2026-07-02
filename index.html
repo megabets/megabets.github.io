@@ -670,6 +670,20 @@ function bracketIndex(m){
 // KO matches in bracket order (kickoff as a stable tiebreak).
 const koSorted = s => MATCHES.filter(m=>m.stage===s)
   .sort((a,b)=> bracketIndex(a)-bracketIndex(b) || new Date(a.kickoff)-new Date(b.kickoff));
+// Main advancement path (3RD is a side match, off-path). Index = round depth.
+const MAINPATH = {R32:0, R16:1, QF:2, SF:3, FINAL:4};
+// Deepest main-path round each team reaches. A team appearing in round r+1 must have
+// won its round-r match, so this identifies advancers the 90' score can't — the winners
+// of matches drawn at 90' and settled on penalties/extra time.
+function teamDepths(){
+  const d = {};
+  MATCHES.forEach(m=>{
+    const r = MAINPATH[m.stage]; if(r==null) return;
+    for(const t of [m.home_team, m.away_team])
+      if(t && t!=="TBD" && (d[t]==null || r>d[t])) d[t]=r;
+  });
+  return d;
+}
 
 /* ───────────── tiny supabase REST helper ───────────── */
 const rest = (path, opts={}) => fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -1564,43 +1578,58 @@ function paintBet(stage){
   }
   updateBetDirty();
 }
-// One read-only match cell in the tree: two team rows with the final score, winner bold.
+// One read-only match cell in the tree: two team rows with the final score. The team that
+// advanced is bold — the 90' winner, or (for a 90' draw settled on pens/ET) whichever team
+// turns up in a later round. The Final/3rd have no later round, so fall back to the podium
+// result for those. A match drawn at 90' whose next round isn't drawn yet stays unbold.
 // An absent match (round not drawn yet) renders an empty placeholder to keep the shape.
-function treeGame(m, half){
+function treeGame(m, half, depths){
   const hc = half ? ` half-${half}` : "";
   if(!m) return `<div class="bx-game empty${hc}"><div class="bx-team"></div><div class="bx-team"></div></div>`;
   const fin = isFinal(m) && hasScore(m);
-  const hw = fin && m.home_score>m.away_score, aw = fin && m.away_score>m.home_score;
+  const round = MAINPATH[m.stage];
+  const pod = PODIUM_RESULT || {};
+  const advanced = t =>
+    (round!=null && depths && depths[t]>round) ||          // appears in a later round
+    (m.stage==="FINAL" && t===pod.winner) ||                // champion (Final has no next round)
+    (m.stage==="3RD"   && t===pod.third);                  // 3rd-place winner
+  const hw = (fin && m.home_score>m.away_score) || advanced(m.home_team);
+  const aw = (fin && m.away_score>m.home_score) || advanced(m.away_team);
   const row = (team,score,win)=>`<div class="bx-team${win?' win':''}"><span class="bx-name">${esc(team)}</span><span class="bx-sc">${fin?score:""}</span></div>`;
   return `<div class="bx-game${hc}">${row(m.home_team,m.home_score,hw)}${row(m.away_team,m.away_score,aw)}</div>`;
 }
 // Tree view: a read-only, minimalistic overview of the whole knockout bracket, laid out
 // as horizontal columns (Last 32 → Final) with connector lines. No bets. Each round has a
-// fixed slot count so the tree keeps its shape before later rounds are drawn; matches are
-// placed in kickoff order, paired [2i,2i+1] into the next round (same wiring as the list).
+// fixed slot count so the tree keeps its shape before later rounds are drawn; each match is
+// placed at its canonical bracket slot (bracketIndex), paired [2i,2i+1] into the next round.
 const TREE_ROUNDS = [["R32",16],["R16",8],["QF",4],["SF",2],["FINAL",1]];
 function paintTree(){
   const list=$("#matchList");
   $("#betActions").style.display="none";
+  const depths = teamDepths();
   const cols = TREE_ROUNDS.map(([stage,n],ri)=>{
     const games = koSorted(stage);
-    const slots = Array.from({length:n}, (_,i)=> games[i] || null);
+    // Place each match at its canonical bracket slot (not sequentially): undrawn
+    // matchups aren't DB rows yet, so sequential packing would collapse later matches
+    // upward into the wrong slots. bracketIndex maps R32 slots onto this round's range.
+    const slots = Array(n).fill(null);
+    games.forEach(m => { const bi = bracketIndex(m); if(bi < n) slots[bi] = m; });
     const last = ri===TREE_ROUNDS.length-1;
     // Each round splits down the middle: the first n/2 slots are the top half of the
     // bracket, the rest the bottom half (the two halves meet at the centred Final).
     const half = j => last ? "" : (j < n/2 ? "top" : "bot");
     let body;
     if(last){
-      body = `<div class="bx-matchup">${treeGame(slots[0])}</div>`;
+      body = `<div class="bx-matchup">${treeGame(slots[0],"",depths)}</div>`;
     } else {
       const ms=[];
-      for(let i=0;i<slots.length;i+=2) ms.push(`<div class="bx-matchup">${treeGame(slots[i],half(i))}${treeGame(slots[i+1],half(i+1))}</div>`);
+      for(let i=0;i<slots.length;i+=2) ms.push(`<div class="bx-matchup">${treeGame(slots[i],half(i),depths)}${treeGame(slots[i+1],half(i+1),depths)}</div>`);
       body = ms.join("");
     }
     return `<div class="bx-round${last?' last':''}"><div class="bx-head">${STAGE_TABS[stage]||stage}</div><div class="bx-body">${body}</div></div>`;
   }).join("");
   const third = koSorted("3RD")[0];
-  const thirdHtml = `<div class="bx-3rd"><div class="bx-head">3rd place</div>${treeGame(third)}</div>`;
+  const thirdHtml = `<div class="bx-3rd"><div class="bx-head">3rd place</div>${treeGame(third,"",depths)}</div>`;
   list.innerHTML = `<div class="bx"><div class="bx-inner">${cols}</div></div>${thirdHtml}`;
 }
 // The 🏆 Podium bet: pick winner / finalist / 3rd / 4th from a type-to-filter team
